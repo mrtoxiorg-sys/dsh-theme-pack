@@ -323,6 +323,13 @@ if (row?.component !== undefined) {
 }
 void plugin;
 
+/* A version marker makes a stale page obvious: `__DSH_THEME_PACK__.version`. */
+const packageVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+check(
+  globalThis.__DSH_THEME_PACK__?.version === packageVersion,
+  `the runtime marker reports ${globalThis.__DSH_THEME_PACK__?.version}, package.json says ${packageVersion}`
+);
+
 /* --------------------------------------------------- React resolution paths */
 
 /* The global fallback must work when the loader passes no `require`. */

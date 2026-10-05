@@ -33,6 +33,12 @@ window.__ModuleLoader__.load({
 		const STORAGE_KEY = "dsh-theme-pack:active";
 		const STYLE_ID = "dsh-theme-pack-style";
 		const LAYER_SOURCE = "@local/dsh-theme-pack";
+		/** Bumped on every published change; also lets the console prove which build ran. */
+		const VERSION = "1.2.0";
+		globalThis.__DSH_THEME_PACK__ = {
+			version: VERSION,
+			themeIds: () => THEMES.map((theme) => theme.id)
+		};
 
 		const DICTIONARIES = {
 			en: {
