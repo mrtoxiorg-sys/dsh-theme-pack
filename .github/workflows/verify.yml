@@ -21,5 +21,7 @@ jobs:
           node-version: 20
       - name: Check every palette against the design system and WCAG floors
         run: node verify-theme-pack.mjs
+      - name: Fail when the shell grows a colour token the pack does not carry
+        run: node report-token-coverage.mjs
       - name: Regenerate the palette dump
         run: node export-theme-palettes.mjs > /tmp/palettes.json

@@ -713,14 +713,19 @@ window.__ModuleLoader__.load({
 		/**
 		 * Build the structural tokens for one scheme.
 		 *
-		 * The ramp runs `raised` -> `deep`, which keeps the two schemes consistent
-		 * with each other instead of pinning light greys into a dark UI.
+		 * The ramp runs from the lightest surface (`raised`) to the darkest tone the
+		 * scheme owns (its `deep`, nudged towards the text colour). Spreading it
+		 * across that whole range matters: a ramp anchored on two adjacent surfaces
+		 * produced light-theme greys within one step of the canvas, so the selected
+		 * category was effectively invisible *and* still 35 steps of stock blue-grey
+		 * away from the scheme.
 		 *
 		 * @param {Record<string, string>} a Atom table.
 		 * @returns {Record<string, string>} token name -> color.
 		 */
 		function structure(a) {
-			const ramp = (position) => mix(a.raised, a.deep, position);
+			const bottom = mix(a.deep, a.ink, 0.22);
+			const ramp = (position) => mix(a.raised, bottom, position);
 			const tokens = {};
 			for (const [family, steps] of Object.entries(STATIC_RAMP_STEPS)) {
 				for (const step of steps) {

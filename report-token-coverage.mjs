@@ -139,3 +139,14 @@ for (const name of missingDesign) console.log('  ' + name);
 console.log('');
 console.log(`NOT overridden, only used by the shell bundle (${missingShell.length}):`);
 for (const name of missingShell) console.log('  ' + name);
+
+/**
+ * Exit non-zero on a gap, so CI fails when the shell grows a colour this pack
+ * does not carry. Only *declared* names count: the shell-only list is mostly
+ * typography, radii and shadows, which a colour pack is right to leave alone.
+ */
+if (missingDesign.length > 0) {
+	console.error('');
+	console.error(`coverage gap: ${missingDesign.length} declared colour token(s) not overridden`);
+	process.exit(1);
+}
