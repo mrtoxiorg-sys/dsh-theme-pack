@@ -329,6 +329,67 @@ function rendersWithoutBareReact(label, component, injected) {
 }
 
 /**
+ * Re-entrancy: the shipped theme service publishes `theme/change` from inside
+ * `overrideTokens`, and dispatching that event calls our listener synchronously.
+ * An `apply()` that re-stacks from inside it therefore recurses until the stack
+ * dies: "overrideTokens(...): Maximum call stack size exceeded" in the browser,
+ * leaving the shell on the stock palette. This service reproduces that exactly.
+ */
+{
+  storage.set('dsh-theme-pack:active', 'nord');
+  const published = [];
+  const syncService = {
+    listeners: {},
+    on(name, listener) {
+      (syncService.listeners[name] ??= []).push(listener);
+      return () => {};
+    },
+    effect(callback) {
+      const dispose = callback();
+      return typeof dispose === 'function' ? dispose : () => {};
+    },
+    emit(name) {
+      /* Synchronous dispatch, like the browser's event loop for this event. */
+      for (const listener of [...(syncService.listeners[name] ?? [])]) listener();
+    },
+    get(name) {
+      if (name === 'theme') {
+        return {
+          overrideTokens(_source, tokens) {
+            published.push(Object.keys(tokens).length);
+            syncService.emit('theme/change');
+            return () => {};
+          }
+        };
+      }
+      if (name === 'slots') return service.slots;
+      if (name === 'locale') return service.locale;
+      return undefined;
+    }
+  };
+
+  const payload = loadBundle({ provideRequire: true });
+  const syncPlugin = payload.factory((name) => globalThis.React);
+  let syncError = null;
+  try {
+    syncPlugin.apply(syncService);
+  } catch (error) {
+    syncError = error;
+  }
+  check(syncError === null, `apply() threw with a re-entrant theme service: ${syncError?.message}`);
+  check(
+    !(globalThis.__DSH_THEME_PACK__?.problems ?? []).some((problem) => /call stack/i.test(problem)),
+    `a re-entrant theme service overflowed the stack: ${(globalThis.__DSH_THEME_PACK__?.problems ?? []).join(' | ')}`
+  );
+  check(published.length >= 1, 'the skin was never stacked through the re-entrant service');
+  check(
+    published.length <= 2,
+    `the layer was re-stacked ${published.length} times — apply() is not re-entrancy safe`
+  );
+  storage.clear();
+}
+
+/**
  * The restricted-context pass: this is the bug that killed the boot twice.
  *
  * A dynamic Client half receives `get / on / provide / effect` and *nothing
@@ -769,6 +830,74 @@ for (const { id, schemes } of catalogue) {
   }
 }
 const tightest = [...worst].sort((a, b) => a.value - a.required - (b.value - b.required)).slice(0, 6);
+
+/* ------------------------------------------------------- structural tokens */
+
+/**
+ * The shell paints real surfaces with `--dsw-static-*` / `--dsw-specific-*`, not
+ * only with `--dsw-alias-*` — the selected Settings category is
+ * `--dsw-specific-sidebar-nav-item-active`, which pointed at a static grey. This
+ * audit holds the derived ramp to three rules: it exists for every declared step,
+ * it never collapses onto one colour, and text stays legible on the surfaces that
+ * carry the selected/hover states.
+ */
+{
+  const structural = globalThis.__DSH_THEME_PACK__?.structure;
+  const atomsOf = globalThis.__DSH_THEME_PACK__?.atoms;
+  check(typeof structural === 'function', 'the pack must expose structure() for auditing');
+  check(typeof atomsOf === 'function', 'the pack must expose atoms() for auditing');
+  const staticSteps = {
+    'neutral': ['00', '50', '100', '150', '200', '250', '300', '400', '500', '550', '600', '700', '800', '850', '900', '1000'],
+    'neutral-bluish': ['00', '50', '60', '75', '100', '150', '200', '300', '400', '500', '600', '700', '750', '800', '850', '875', '900', '950', '1000']
+  };
+  const surfaces = [
+    '--dsw-specific-sidebar-nav-item-active',
+    '--dsw-specific-sidebar-nav-item-hover',
+    '--dsw-specific-menu',
+    '--dsw-menu-surface-fill',
+    '--dsw-hovercard-bg'
+  ];
+
+  for (const { id } of catalogue) {
+    for (const scheme of ['light', 'dark']) {
+      const atoms = atomsOf(id)?.[scheme];
+      check(atoms !== undefined, `"${id}".${scheme} has no atom table to derive structure from`);
+      if (atoms === undefined) continue;
+      const tokens = structural(atoms);
+      const ink = atoms.ink;
+      for (const [family, steps] of Object.entries(staticSteps)) {
+        for (const step of steps) {
+          const name = `--dsw-static-${family}-${step}`;
+          check(tokens[name] !== undefined, `"${id}".${scheme} structure is missing ${name}`);
+        }
+      }
+      for (const name of surfaces) {
+        const value = tokens[name];
+        check(value !== undefined, `"${id}".${scheme} structure is missing ${name}`);
+        if (value === undefined) continue;
+        /* Translucent sheets (`rgba(...)`) have no single luminance; hold only the
+         * opaque ones to the text floor. */
+        if (!value.startsWith('#')) continue;
+        const valueRatio = ratio(ink, value);
+        check(
+          valueRatio >= 2,
+          `"${id}".${scheme} ${name} is ${valueRatio.toFixed(2)}:1 against the primary text, needs 2:1`
+        );
+      }
+      /* A ramp that collapses is a bug of its own: the steps must differ. */
+      const distinct = new Set(staticSteps['neutral-bluish'].map((step) => tokens[`--dsw-static-neutral-bluish-${step}`]));
+      check(
+        distinct.size >= 8,
+        `"${id}".${scheme} the bluish ramp collapsed to ${distinct.size} distinct values`
+      );
+      /* And the selected nav row must be distinguishable from the hover row. */
+      check(
+        tokens['--dsw-specific-sidebar-nav-item-active'] !== tokens['--dsw-specific-sidebar-nav-item-hover'],
+        `"${id}".${scheme} active and hover nav rows are the same colour`
+      );
+    }
+  }
+}
 
 /* ------------------------------------------------------------- picker row */
 

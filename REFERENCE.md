@@ -1,5 +1,48 @@
 # Theme pack — reference notes
 
+## Three token families, not one
+
+The shell is painted by three families, and a skin that only overrides the first
+one ships with stray stock colors — the selected Settings category stayed grey
+for exactly that reason:
+
+| Family | Where | What it carries |
+| --- | --- | --- |
+| `--dsw-alias-*` | declared in `body` / `body[data-ds-dark-theme]` | the semantic ladder: surfaces, text, borders, states |
+| `--dsw-static-*` | declared once, shared by both schemes | a fixed ramp (`neutral-50 … 1000`, `neutral-bluish-50 … 1000`) plus data-viz colors |
+| `--dsw-specific-*` | declared in the dark block | component overrides pointing at that ramp: `sidebar-nav-item-active`, `bubble`, `selector`, `tip`, `input-major`, `login-input` |
+
+The structural table is *derived*, not copied: `structure(a)` runs each ramp step
+from `raised` to `deep` at the position the stock design system uses, so a dark
+skin gets dark greys instead of the shipped light ones. Two consequences worth
+keeping:
+
+* **The two ramps do not share their step set.** `neutral` has 550 and no 60;
+  `neutral-bluish` has 60 and 750 and no 250. Writing the union produced overrides
+  for names that do not exist, and `verify-theme-pack.mjs` caught it.
+* **The semantic ramps are deliberately left alone.** `--dsw-static-blue-*`,
+  `-deepseek-*`, `-green-*`, `-amber-*` and `-red-*` are the data-viz palette and
+  the status dots; re-hueing them per skin would repaint meaning. `structure()`
+  never writes them, and `report-token-coverage.mjs` names the exemption so the
+  gap reads as a decision rather than an omission.
+
+A coverage report that watches one family cannot see the other two. That is the
+lesson: the first version of the report counted `--dsw-alias-*` only and printed
+"0 uncovered" while whole surfaces were still stock.
+
+## Beyond the design system
+
+Two names the shell reads are declared nowhere scheme-aware, so a skin has to
+define them itself:
+
+| Token | Why |
+| --- | --- |
+| `--dsw-menu-surface-fill` | declared as `#f8f9fa94` — a light sheet with no dark variant |
+| `--dsw-hovercard-bg` | pinned to `#2C2C2E` *inside a shell rule*, so hover cards are dark under a light skin |
+
+`--dsw-alias-bg-layer-4` (the composer and footer row) and
+`--dsw-alias-label-error` are read but never declared at all.
+
 ## Where the palettes anchor
 
 `client.js` overrides the shell's alias tokens through
@@ -94,7 +137,6 @@ means the module threw during load or render. Read the browser console for
 `slot entry crashed in '<slot key>'` before trusting the tree.
 
 ## A client plugin can take the whole boot down
-
 The web boot collects its client entries and then asserts that every one of them
 activated:
 
@@ -147,7 +189,30 @@ Two consequences for the design:
   An empty `problems` array plus a missing picker means the slot registration
   never happened, not that the plugin died.
 
-### The context a client half actually gets
+### `overrideTokens` publishes the event you are listening to
+
+The shipped theme service ends `overrideTokens` with `publish()`, which emits
+`theme/change` — synchronously. An `apply()` wired to that event and re-stacking
+the layer from the handler therefore recurses until the stack dies:
+
+```
+dsh-theme-pack: overrideTokens(@local/dsh-theme-pack): Maximum call stack size exceeded
+```
+
+The guard that fixes it is two lines, and both parts matter:
+
+```js
+if (applying) return;                       // re-entrancy latch
+if (active === appliedId && isDark === appliedDark) return;   // our own publish is a no-op
+```
+
+The latch stops the recursion; the "nothing changed" check stops the pointless
+re-stack that would otherwise follow every unrelated theme change. The
+verification script drives a service that emits synchronously from inside
+`overrideTokens`, counts the registrations and fails the run if the stack dies —
+removing either line turns that test red.
+
+## The context a client half actually gets
 
 Not necessarily the full cordis context. The documented surface of the restricted
 one is

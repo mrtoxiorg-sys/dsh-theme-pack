@@ -41,7 +41,7 @@ window.__ModuleLoader__.load({
 		const STYLE_ID = "dsh-theme-pack-style";
 		const LAYER_SOURCE = "@local/dsh-theme-pack";
 		/** Bumped on every published change; also lets the console prove which build ran. */
-		const VERSION = "1.2.4";
+		const VERSION = "1.2.5";
 
 		/**
 		 * Activation diagnostics, readable from the page console as
@@ -363,7 +363,6 @@ window.__ModuleLoader__.load({
 		function palette(a) {
 			const borderTone = contrastRatio(a.canvas, a.border) > 1.6 ? a.canvas : a.ink;
 			const alphaOfInk = (ratio) => alphaOf(a.ink, ratio);
-			const placeholder = a.muted ?? a.ink;
 			return {
 				/* canvas and the raised ladder */
 				[T.bgBase]: a.canvas,
@@ -408,7 +407,14 @@ window.__ModuleLoader__.load({
 				[T.labelDeepDivingShimmer]: mix(a.brand, a.ink, 0.35),
 				[T.labelDocumentPreview]: a.ink,
 				[T.labelShimmer]: alphaOfInk(0.3),
-				[T.markdownPlaceholder]: placeholder,
+				/*
+				 * The composer's empty-state hint. It is painted with the *primary*
+				 * ink, not a dimmed one: in a text field the hint is what you read
+				 * while deciding what to type, so `--dsw-alias-label-dimmed` (used for
+				 * chrome hints) would leave the input looking greyer than the rest of
+				 * the skin.
+				 */
+				[T.markdownPlaceholder]: a.ink,
 				[T.markdownCitation]: a.faint,
 				[T.markdownTag]: a.nested,
 				[T.markdownCodeSegmentUnselected]: a.nested,
@@ -610,6 +616,132 @@ window.__ModuleLoader__.load({
 		];
 		void ATOM_KEYS;
 		DIAGNOSTICS.themeIds = THEMES.map((theme) => theme.id);
+		/*
+		 * The pure functions are exposed for the offline harnesses (and for a
+		 * console poke): building a layer is the one step that can still surprise,
+		 * and having `palette` reachable turns "stack exceeded" into a unit test.
+		 */
+		DIAGNOSTICS.palette = palette;
+		DIAGNOSTICS.tokensOf = tokensOf;
+		DIAGNOSTICS.atoms = (id) => {
+			const definition = themeById(id);
+			return { light: definition.light, dark: definition.dark };
+		};
+
+		/* ------------------------------------------------------- structure ---- */
+
+		/**
+		 * The shell is not painted only by `--dsw-alias-*`.
+		 *
+		 * Two more families carry real surfaces:
+		 *
+		 *   --dsw-static-*    a fixed ramp (`neutral-50 … neutral-1000`,
+		 *                     `neutral-bluish-50 … 1000`) declared once and shared
+		 *                     by both schemes;
+		 *   --dsw-specific-*  component overrides (`sidebar-nav-item-active`, the
+		 *                     bubble, the selector, the tips) that point at that
+		 *                     ramp from the dark block.
+		 *
+		 * Overriding only the alias family is exactly why the selected Settings
+		 * category stayed stock grey. This ramp puts the same atoms underneath.
+		 */
+		/**
+		 * The ramp steps the design system actually declares, per family. They are
+		 * deliberately written out rather than generated: the two ramps do not share
+		 * a step set (`neutral` has 550 and no 60; `neutral-bluish` is the reverse),
+		 * and guessing the union produced overrides for names that do not exist.
+		 */
+		const STATIC_RAMP_STEPS = {
+			"neutral": ["00", "50", "100", "150", "200", "250", "300", "400", "500", "550", "600", "700", "800", "850", "900", "1000"],
+			"neutral-bluish": ["00", "50", "60", "75", "100", "150", "200", "300", "400", "500", "600", "700", "750", "800", "850", "875", "900", "950", "1000"]
+		};
+
+		/**
+		 * Where a ramp step sits between the light end (`raised`) and the dark end
+		 * (`deep`) of a scheme. The numbers are the stock design system's own
+		 * positions, so a derived ramp lands near the shipped contrast.
+		 */
+		const RAMP_POSITION = {
+			"00": 0.02,
+			"50": 0.06,
+			"60": 0.08,
+			"75": 0.1,
+			"100": 0.14,
+			"150": 0.2,
+			"200": 0.26,
+			"250": 0.32,
+			"300": 0.36,
+			"400": 0.46,
+			"500": 0.56,
+			"550": 0.62,
+			"600": 0.68,
+			"700": 0.76,
+			"750": 0.48,
+			"800": 0.56,
+			"850": 0.64,
+			"875": 0.8,
+			"900": 0.86,
+			"950": 0.92,
+			"1000": 0.98
+		};
+
+		/**
+		 * The component tokens that actually paint a surface, and the ramp step each
+		 * one corresponds to. `sidebar-fill` is handled by the palette (it only needs
+		 * the sidebar atom); everything else is a depth on the same ramp.
+		 */
+		const SPECIFIC_STEPS = {
+			"--dsw-specific-input-major": 0.1,
+			"--dsw-specific-login-input": 0.14,
+			"--dsw-specific-bubble": 0.26,
+			"--dsw-specific-bubble-highlight": 0.48,
+			"--dsw-specific-tip": 0.56,
+			"--dsw-specific-selector": 0.56,
+			"--dsw-specific-sidebar-nav-item-active": 0.48,
+			"--dsw-specific-sidebar-nav-item-active-accent": 0.2,
+			"--dsw-specific-sidebar-nav-item-hover": 0.14
+		};
+
+		/**
+		 * Colors that belong to a *different* family on purpose: the semantic ramps
+		 * (blue, deepseek, green, amber, red) are the data-viz palette. Re-hueing
+		 * them per skin would repaint charts and status dots away from what they
+		 * mean, so a skin leaves them alone — and the coverage report says so.
+		 */
+		const KEPT_STATIC = /^--dsw-static-(blue|deepseek|green|amber|red)-/;
+
+		/**
+		 * Build the structural tokens for one scheme.
+		 *
+		 * The ramp runs `raised` -> `deep`, which keeps the two schemes consistent
+		 * with each other instead of pinning light greys into a dark UI.
+		 *
+		 * @param {Record<string, string>} a Atom table.
+		 * @returns {Record<string, string>} token name -> color.
+		 */
+		function structure(a) {
+			const ramp = (position) => mix(a.raised, a.deep, position);
+			const tokens = {};
+			for (const [family, steps] of Object.entries(STATIC_RAMP_STEPS)) {
+				for (const step of steps) {
+					tokens[`--dsw-static-${family}-${step}`] = ramp(RAMP_POSITION[step] ?? 0.5);
+				}
+			}
+			for (const [name, position] of Object.entries(SPECIFIC_STEPS)) tokens[name] = ramp(position);
+			/* The accent is the one structural token that carries the skin's own hue. */
+			tokens["--dsw-specific-sidebar-nav-item-active-accent"] = mix(a.nested, a.brand, 0.45);
+			/* Keep the stock alpha: the menu is a translucent sheet over the app. */
+			tokens["--dsw-specific-menu"] = alphaOf(a.raised, 0.94);
+			/*
+			 * Two names the shell reads that the design system either leaves
+			 * scheme-less (`#f8f9fa94`, i.e. always light) or pins inside a shell rule
+			 * (`--dsw-hovercard-bg: #2C2C2E`, always dark).
+			 */
+			tokens["--dsw-menu-surface-fill"] = alphaOf(a.raised, 0.58);
+			tokens["--dsw-hovercard-bg"] = a.raised;
+			return tokens;
+		}
+		DIAGNOSTICS.structure = structure;
 
 		const DEFAULT_ID = "stock";
 
@@ -630,8 +762,8 @@ window.__ModuleLoader__.load({
 		 */
 		function tokensOf(definition) {
 			if (definition.light === undefined || definition.dark === undefined) return {};
-			const light = palette(definition.light);
-			const dark = palette(definition.dark);
+			const light = { ...palette(definition.light), ...structure(definition.light) };
+			const dark = { ...palette(definition.dark), ...structure(definition.dark) };
 			const tokens = {};
 			for (const name of Object.keys(light)) tokens[name] = { light: light[name], dark: dark[name] };
 			return tokens;
@@ -679,6 +811,20 @@ window.__ModuleLoader__.load({
 			let active = readStored();
 			let isDark = false;
 			let disposeLayer = () => {};
+			/** What the currently stacked layer was built from. */
+			let appliedId = undefined;
+			let appliedDark = undefined;
+			/**
+			 * Re-entrancy latch.
+			 *
+			 * `overrideTokens` publishes `theme/change` as its last act, so an
+			 * `apply()` that re-stacks the layer from inside that event listener
+			 * publishes again — an endless loop that surfaces as
+			 * "Maximum call stack size exceeded" and leaves the shell on whichever
+			 * palette it started with. The latch (plus the no-op check below) makes
+			 * our own publish a no-op for us.
+			 */
+			let applying = false;
 			const listeners = new Set();
 
 			const syncScheme = () => {
@@ -695,30 +841,41 @@ window.__ModuleLoader__.load({
 			 * its stock palette and report the reason — never take the boot down.
 			 */
 			const apply = () => {
+				if (applying) return;
+				applying = true;
 				try {
-					disposeLayer();
-				} catch (error) {
-					report("dispose the previous layer", error);
-				}
-				disposeLayer = () => {};
-				const definition = themeById(active);
-				if (definition.id === DEFAULT_ID) return;
-				const tokens = tokensOf(definition);
-				if (Object.keys(tokens).length === 0) {
-					/* An incomplete atom table must not silently render the stock palette. */
-					report(`theme "${definition.id}" has no atom tables`, undefined);
-					return;
-				}
-				const theme = resolve(ctx, "theme");
-				if (typeof theme?.overrideTokens !== "function") {
-					report("the theme service exposes no overrideTokens()", undefined);
-					return;
-				}
-				try {
-					disposeLayer = theme.overrideTokens(LAYER_SOURCE, tokens);
-				} catch (error) {
-					report(`overrideTokens(${LAYER_SOURCE})`, error);
+					if (active === appliedId && isDark === appliedDark) return;
+					try {
+						disposeLayer();
+					} catch (error) {
+						report("dispose the previous layer", error);
+					}
 					disposeLayer = () => {};
+					appliedId = undefined;
+					appliedDark = undefined;
+					const definition = themeById(active);
+					if (definition.id === DEFAULT_ID) return;
+					const tokens = tokensOf(definition);
+					if (Object.keys(tokens).length === 0) {
+						/* An incomplete atom table must not silently render the stock palette. */
+						report(`theme "${definition.id}" has no atom tables`, undefined);
+						return;
+					}
+					const theme = resolve(ctx, "theme");
+					if (typeof theme?.overrideTokens !== "function") {
+						report("the theme service exposes no overrideTokens()", undefined);
+						return;
+					}
+					try {
+						disposeLayer = theme.overrideTokens(LAYER_SOURCE, tokens);
+						appliedId = active;
+						appliedDark = isDark;
+					} catch (error) {
+						report(`overrideTokens(${LAYER_SOURCE})`, error);
+						disposeLayer = () => {};
+					}
+				} finally {
+					applying = false;
 				}
 			};
 			const notify = () => {

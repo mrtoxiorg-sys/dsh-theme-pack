@@ -92,21 +92,47 @@ const overridden = new Set(Object.keys(overrides.get('@local/dsh-theme-pack') ??
 
 /* ----------------------------------------------------------- declared tokens */
 
-/** `--dsw-alias-*` names the shell declares somewhere, split by surface. */
+/**
+ * Every `--dsw-*` name the shell declares *or consumes*, minus the one family a
+ * skin keeps on purpose.
+ *
+ * The first version of this report only looked at `--dsw-alias-*`, which is how
+ * the pack shipped with "0 uncovered" while the selected Settings category — a
+ * `--dsw-specific-*` pointer into the `--dsw-static-*` ramp — stayed stock grey.
+ * A coverage report that watches one family cannot see that.
+ */
+const KEPT = /^--dsw-static-(blue|deepseek|green|amber|red)-/;
+
 function declaredIn(text) {
-  const names = new Set([...text.matchAll(/--dsw-alias-[a-z0-9-]+/g)].map((match) => match[0]));
-  return names;
+	const names = new Set([...text.matchAll(/--dsw-[a-z0-9-]+/g)].map((match) => match[0]));
+	for (const name of [...names]) if (KEPT.test(name)) names.delete(name);
+	return names;
 }
 
 const design = declaredIn(fs.readFileSync(DESIGN, 'utf8'));
 const shell = fs.existsSync(SHELL) ? declaredIn(fs.readFileSync(SHELL, 'utf8')) : new Set();
 
+const byFamily = (names) => {
+	const counts = new Map();
+	for (const name of names) {
+		/* `--dsw-alias-…`, `--dsw-static-…`, `--dsw-specific-…`, `--dsw-font-…` */
+		const parts = name.replace(/^--/, '').split('-');
+		const family = parts.length > 2 ? `--${parts.slice(0, 1).join('-')}-${parts[1]}` : name;
+		counts.set(family, (counts.get(family) ?? 0) + 1);
+	}
+	return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
+};
+
 const missingDesign = [...design].filter((name) => !overridden.has(name)).sort();
 const missingShell = [...shell].filter((name) => !overridden.has(name) && !design.has(name)).sort();
 
 console.log(`declared in design-platform.css : ${design.size}`);
+for (const [family, count] of byFamily(design)) console.log(`    ${family.padEnd(20)} ${count}`);
 console.log(`declared in shell.css           : ${shell.size}`);
 console.log(`overridden by the theme pack    : ${overridden.size}`);
+for (const [family, count] of byFamily(overridden)) console.log(`    ${family.padEnd(20)} ${count}`);
+console.log('');
+console.log('(the semantic data-viz ramps are intentionally kept: blue/deepseek/green/amber/red)');
 console.log('');
 console.log(`NOT overridden, declared in the design system (${missingDesign.length}):`);
 for (const name of missingDesign) console.log('  ' + name);
