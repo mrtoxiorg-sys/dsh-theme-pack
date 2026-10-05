@@ -9,7 +9,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLIENT = path.join(here, 'dsh-theme-pack', 'client.js');
+
+/** The package root: this script's own directory, or the workspace sub-folder. */
+function packageRoot() {
+  for (const candidate of [here, path.join(here, 'dsh-theme-pack')]) {
+    if (fs.existsSync(path.join(candidate, 'client.js'))) return candidate;
+  }
+  throw new Error(`client.js not found next to ${here} or in ${here}/dsh-theme-pack`);
+}
+
+const CLIENT = path.join(packageRoot(), 'client.js');
 const source = fs.readFileSync(CLIENT, 'utf8');
 
 /* ------------------------------------------------------------- environment */
