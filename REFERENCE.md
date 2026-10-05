@@ -16,19 +16,36 @@ to prove that every token a theme overrides actually exists. If a future DSH
 release renames or drops a token, `node verify-theme-pack.mjs` fails loudly
 instead of silently ignoring the override.
 
-## The 32 tokens a skin overrides
+## The 104 tokens a skin overrides
 
-| Purpose | Token |
+The first release overrode the 32 obvious ones and that was the bug users saw: an
+otherwise repainted UI with purple composer rows, menus and diff views, because
+everything else still resolved to the shipped palette. A partial skin is worse
+than no skin.
+
+| Purpose | Tokens |
 | --- | --- |
-| Canvas and surfaces | `--dsw-alias-bg-base`, `--dsw-alias-bg-layer-1`, `-2`, `-3`, `--dsw-alias-bg-overlay`, `--dsw-specific-sidebar-fill` |
-| Text | `--dsw-alias-label-primary`, `--dsw-alias-label-secondary`, `--dsw-alias-label-tertiary`, `--dsw-alias-label-primary-foreground` |
-| Accent | `--dsw-alias-brand-primary`, `--dsw-alias-brand-primary-invert`, `--dsw-alias-brand-primary-new-colorprimary-new-color`, `--dsw-alias-link`, `--dsw-alias-button-primary-fill`, `--dsw-alias-button-primary-hover` |
-| Borders | `--dsw-alias-border-l1`, `--dsw-alias-border-l2` |
-| States | `--dsw-alias-state-business-primary`, `--dsw-alias-state-error-primary`, `--dsw-alias-state-warn-primary`, `--dsw-alias-state-success-primary`, `--dsw-alias-state-idle-primary` |
-| Interaction | `--dsw-alias-interactive-bg-hover`, `--dsw-alias-interactive-bg-active` |
-| Code and chrome | `--dsw-alias-markdown-code-block`, `--dsw-alias-markdown-code-block-banner`, `--dsw-alias-markdown-inline-code`, `--dsw-alias-scrollbar-bg-l1`, `--dsw-alias-scrollbar-hover-l1`, `--dsw-alias-toast-bg`, `--dsw-alias-toast-label` |
+| Canvas, surfaces, composer | `--dsw-alias-bg-base`, `--dsw-alias-bg-layer-1..4`, `--dsw-alias-bg-overlay`, `--dsw-alias-bg-module-platform`, `--dsw-specific-sidebar-fill`, `--dsw-alias-bg-multi-select`, `--dsw-alias-bg-skeleton`, `--dsw-alias-bg-mask-1..3`, `--dsw-alias-bg-mask-drop`, `--dsw-alias-bg-mask-photo`, `--dsw-alias-bg-document-preview`, `--dsw-alias-bg-document-selection` |
+| Text ladder | `--dsw-alias-label-primary`, `-secondary`, `-tertiary`, `-caption`, `-dimmed`, `-error`, `-primary-foreground`, `-primary-bluish`, `-primary-dimmed`, `-primary-inverted`, `--dsw-alias-label-deep-diving`, `-shimmer`, `--dsw-alias-label-document-preview`, `--dsw-alias-label-shimmer` |
+| Accent and actions | `--dsw-alias-brand-primary`, `-primary-invert`, `-primary-new-colorprimary-new-color`, `--dsw-alias-brand-text`, `--dsw-alias-link`, `--dsw-alias-button-primary-fill`, `-hover`, `-dimmed`, `--dsw-alias-button-elevated-fill`, `-floating-fill`, `-floating-hover`, `-contrast-fill`, `-tool-bar-fill`, `-tool-bar-fill-invisible`, `-tool-bar-hover`, `-ghost-active-fill`, `-ghost-active-border`, `-ghost-active-hover`, `-info-fill`, `-info-hover` |
+| Borders | `--dsw-alias-border-l1..l4`, `--dsw-alias-border-l2-darkmode-thin`, `--dsw-alias-border-inverted`, `-inverted2` |
+| States | `--dsw-alias-state-business-primary`, `-tertiary`, `-error-primary`, `-secondary`, `-warn-primary`, `-label`, `-secondary`, `-tertiary`, `-success-primary`, `-secondary`, `-tertiary`, `-idle-primary` |
+| Interaction | `--dsw-alias-interactive-bg-hover`, `-active`, `-hover-accent`, `-hover-danger`, `-hover-solid`, `--dsw-alias-turn-trigger-bg`, `-hover` |
+| Code, diffs, markdown | `--dsw-alias-markdown-code-block`, `-banner`, `--dsw-alias-markdown-inline-code`, `-tag`, `-placeholder`, `-citation`, `-code-segment-selected`, `-code-segment-unselected`, `--dsw-alias-code-diff-added`, `-deleted`, `--dsw-alias-file-diff-added-bg`, `-gutter`, `-marker`, `--dsw-alias-file-diff-deleted-bg`, `-gutter`, `-marker` |
+| Chrome | `--dsw-alias-scrollbar-bg-l1`, `-l2`, `-hover-l1`, `-hover-l2`, `--dsw-alias-toast-bg`, `-label`, `--dsw-alias-tooltip-bg`, `-key-bg`, `--dsw-alias-menu-icon`, `-group-header-fill`, `--dsw-alias-switch-thumb` |
 
 Both palettes get a value for every token, so a skin survives a light/dark flip.
+
+**Two of these are not declared anywhere in the shipped stylesheets.**
+`--dsw-alias-bg-layer-4` (the composer and footer row) and
+`--dsw-alias-label-error` are only *read* by the shell bundle, so they resolve to
+nothing today and the plug-in is what finally defines them. Keep them.
+
+**Coverage is checkable, so keep it checked.** `node report-token-coverage.mjs`
+prints every alias token the shipped stylesheets mention that the pack does not
+override. Run it after a DSH update; an empty list is the target. The verification
+script fails outright when a skin writes a token the design system does not know,
+and reads `docs/shell.css` when present to catch shell-only names.
 
 ## Why override layers instead of registering themes
 

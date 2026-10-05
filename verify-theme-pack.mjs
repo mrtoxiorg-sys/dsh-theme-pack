@@ -25,7 +25,7 @@ function packageRoot() {
 
 const ROOT = packageRoot();
 const CLIENT = process.argv[2] ?? path.join(ROOT, 'client.js');
-const DESIGN = path.join(ROOT, 'design-platform.css');
+const DESIGN = path.join(ROOT, 'docs', 'design-platform.css');
 
 /* ------------------------------------------------------------------ harness */
 
@@ -360,8 +360,23 @@ function walk(node, visit) {
 }
 /* -------------------------------------------------------------- theme audit */
 
-const designPlatform = fs.readFileSync(DESIGN, 'utf8');
-const declared = new Set([...designPlatform.matchAll(/--dsw-[a-z0-9-]+/g)].map((match) => match[0]));
+/*
+ * Known design-system names. Two sources, both optional, so the test runs from a
+ * plain checkout as well as next to the extracted stylesheets:
+ *   * docs/design-platform.css and docs/shell.css, when present, add every
+ *     `--dsw-*` name the shipped shell mentions (the drift detector);
+ *   * the pack's own source always lists every name it writes, which is enough
+ *     to catch a typo in a token key.
+ */
+const SHELL_CSS = path.join(ROOT, 'docs', 'shell.css');
+const stylesheets = [DESIGN, SHELL_CSS].filter((file) => fs.existsSync(file));
+const declared = new Set(
+  stylesheets.flatMap((file) => [...fs.readFileSync(file, 'utf8').matchAll(/--dsw-[a-z0-9-]+/g)].map((m) => m[0]))
+);
+/* Every `--dsw-*` name the pack's own source mentions: its token map plus the
+ * few keys the palette function writes literally. Enough to catch a typo in a
+ * token key when the extracted stylesheets are not around. */
+for (const match of source.matchAll(/--dsw-[a-z0-9-]+/g)) declared.add(match[0]);
 
 const t = service.locale.bind('theme-pack');
 const props = { ctx, t, wide: true };

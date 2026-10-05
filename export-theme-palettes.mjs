@@ -110,6 +110,72 @@ const chipsOf = (tree) => {
   return found;
 };
 
+/* -------------------------------------------------------------- stock values */
+
+/**
+ * The shipped values of every alias token, read out of the extracted design
+ * system (and the shell bundle, which declares a few tokens of its own) so the
+ * figures can show what a skin replaces.
+ */
+function stockValues() {
+  const files = ['design-platform.css', 'shell.css']
+    .map((name) => path.join(packageRoot(), 'docs', name))
+    .filter((file) => fs.existsSync(file));
+  if (files.length === 0) return { light: {}, dark: {} };
+
+  const rules = [];
+  for (const file of files) {
+    const css = fs.readFileSync(file, 'utf8');
+    let index = 0;
+    while (index < css.length) {
+      const open = css.indexOf('{', index);
+      if (open < 0) break;
+      const selector = css.slice(index, open).trim();
+      let depth = 1;
+      let cursor = open + 1;
+      while (cursor < css.length && depth > 0) {
+        if (css[cursor] === '{') depth += 1;
+        else if (css[cursor] === '}') depth -= 1;
+        cursor += 1;
+      }
+      rules.push({ selector, body: css.slice(open + 1, cursor - 1) });
+      index = cursor;
+    }
+  }
+
+  const collect = (predicate) => {
+    const table = {};
+    for (const { selector, body } of rules) {
+      if (!predicate(selector)) continue;
+      for (const match of body.matchAll(/(--dsw-[a-z0-9-]+)\s*:\s*([^;]+)/g)) table[match[1]] = match[2].trim();
+    }
+    return table;
+  };
+
+  const light = collect((selector) => selector === 'body' || selector === ':root');
+  const dark = collect((selector) => selector.startsWith('body[data-ds-dark-theme]'));
+
+  /**
+   * Expand `var(--x)` chains so the figures show colours, not references.
+   * Unresolvable references stay as-is; the figure falls back to a neutral cell.
+   */
+  const resolve = (table) => {
+    const out = { ...table };
+    for (const name of Object.keys(out)) {
+      for (let hop = 0; hop < 4; hop += 1) {
+        const ref = /^var\((--dsw-[a-z0-9-]+)\)$/.exec(out[name]);
+        if (ref === null) break;
+        const next = table[ref[1]];
+        if (next === undefined || next === out[name]) break;
+        out[name] = next;
+      }
+    }
+    return out;
+  };
+
+  return { light: resolve(light), dark: resolve(dark) };
+}
+
 /* ------------------------------------------------------------------- dump */
 
 const themes = [];
@@ -119,7 +185,10 @@ for (const chip of chipsOf(renderRow())) {
   const layer = overrides.get('@local/dsh-theme-pack');
   const light = {};
   const dark = {};
+  const all = { light: {}, dark: {} };
   for (const [name, pair] of Object.entries(layer ?? {})) {
+    all.light[name] = pair.light;
+    all.dark[name] = pair.dark;
     if (pair.light.startsWith('#')) light[name] = pair.light;
     if (pair.dark.startsWith('#')) dark[name] = pair.dark;
   }
@@ -129,8 +198,12 @@ for (const chip of chipsOf(renderRow())) {
       en: dictionaries['theme-pack']?.en?.[`theme.${id}`] ?? id,
       ru: dictionaries['theme-pack']?.ru?.[`theme.${id}`] ?? id
     },
+    /* `light`/`dark` keep flat colors only (the preview figure uses them);
+       `all` carries every token, transparency included, and is the full record. */
     light,
-    dark
+    dark,
+    all,
+    tokenCount: Object.keys(all.light).length
   });
 }
 
@@ -138,6 +211,7 @@ process.stdout.write(
   JSON.stringify(
     {
       generatedFrom: path.relative(here, CLIENT).replace(/\\/g, '/'),
+      stock: stockValues(),
       themes
     },
     null,

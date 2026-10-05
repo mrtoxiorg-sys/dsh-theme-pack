@@ -122,7 +122,33 @@ window.__ModuleLoader__.load({
 			scrollbar: "--dsw-alias-scrollbar-bg-l1",
 			scrollbarHover: "--dsw-alias-scrollbar-hover-l1",
 			toastBg: "--dsw-alias-toast-bg",
-			toastLabel: "--dsw-alias-toast-label"
+			toastLabel: "--dsw-alias-toast-label",
+			tooltipBg: "--dsw-alias-tooltip-bg",
+			tooltipKeyBg: "--dsw-alias-tooltip-key-bg",
+			menuIcon: "--dsw-alias-menu-icon",
+			menuGroupHeaderFill: "--dsw-alias-menu-group-header-fill",
+			turnTriggerBg: "--dsw-alias-turn-trigger-bg",
+			turnTriggerBgHover: "--dsw-alias-turn-trigger-bg-hover",
+			bgDocumentPreview: "--dsw-alias-bg-document-preview",
+			bgDocumentSelection: "--dsw-alias-bg-document-selection",
+			labelDeepDiving: "--dsw-alias-label-deep-diving",
+			labelDeepDivingShimmer: "--dsw-alias-label-deep-diving-shimmer",
+			labelDocumentPreview: "--dsw-alias-label-document-preview",
+			labelShimmer: "--dsw-alias-label-shimmer",
+			markdownPlaceholder: "--dsw-alias-markdown-placeholder",
+			markdownCitation: "--dsw-alias-markdown-citation",
+			markdownTag: "--dsw-alias-markdown-tag",
+			markdownCodeSegmentSelected: "--dsw-alias-markdown-code-segment-selected",
+			markdownCodeSegmentUnselected: "--dsw-alias-markdown-code-segment-unselected",
+			brandText: "--dsw-alias-brand-text",
+			codeDiffAdded: "--dsw-alias-code-diff-added",
+			codeDiffDeleted: "--dsw-alias-code-diff-deleted",
+			diffAddedBg: "--dsw-alias-file-diff-added-bg",
+			diffAddedGutter: "--dsw-alias-file-diff-added-gutter",
+			diffAddedMarker: "--dsw-alias-file-diff-added-marker",
+			diffDeletedBg: "--dsw-alias-file-diff-deleted-bg",
+			diffDeletedGutter: "--dsw-alias-file-diff-deleted-gutter",
+			diffDeletedMarker: "--dsw-alias-file-diff-deleted-marker"
 		};
 
 		/* ---------------------------------------------------------------- colors */
@@ -233,47 +259,143 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Build the 32 alias tokens for one scheme from the atoms.
+		 * Build every alias token the shell consumes, derived from the atoms.
+		 *
+		 * The shipped design system declares over a hundred `--dsw-alias-*` names; a
+		 * skin that overrides only the obvious two dozen leaves the rest of the shell
+		 * in its stock colours — purple surfaces in the composer, the sidebar or a
+		 * menu, under an otherwise repainted UI. So this map is deliberately complete.
+		 * `node report-token-coverage.mjs` prints the gap, and the checker fails when
+		 * the design system grows a token this map misses.
+		 *
 		 * @param {Record<string, string>} a Atom table.
 		 * @returns {Record<string, string>} token name -> color.
 		 */
 		function palette(a) {
 			const borderTone = contrastRatio(a.canvas, a.border) > 1.6 ? a.canvas : a.ink;
-			const derived = {
+			const alphaOfInk = (ratio) => alphaOf(a.ink, ratio);
+			const placeholder = a.muted ?? a.ink;
+			return {
+				/* canvas and the raised ladder */
 				[T.bgBase]: a.canvas,
 				[T.bgL1]: a.raised,
 				[T.bgL2]: a.nested,
 				[T.bgL3]: a.deep,
 				[T.bgOverlay]: a.raised,
 				[T.sidebar]: a.sidebar,
+				"--dsw-alias-bg-layer-4": a.canvas,
+				"--dsw-alias-bg-module-platform": a.raised,
+				"--dsw-alias-bg-multi-select": mix(a.nested, a.brand, 0.18),
+				"--dsw-alias-bg-skeleton": alphaOfInk(0.05),
+				"--dsw-alias-bg-mask-1": "rgba(0, 0, 0, 0.24)",
+				"--dsw-alias-bg-mask-2": "rgba(0, 0, 0, 0.12)",
+				"--dsw-alias-bg-mask-3": "rgba(0, 0, 0, 0.48)",
+				"--dsw-alias-bg-mask-drop": alphaOf(a.canvas, 0.7),
+				"--dsw-alias-bg-mask-photo": "rgba(0, 0, 0, 0.88)",
+				[T.bgDocumentPreview]: a.deep,
+				[T.bgDocumentSelection]: "rgba(59, 130, 246, 0.4)",
+
+				/* borders, thinner and lighter than the surface ladder */
 				[T.borderL1]: veil(a.canvas, borderTone, 0.14),
 				[T.borderL2]: veil(a.canvas, borderTone, 0.28),
+				"--dsw-alias-border-l3": veil(a.canvas, borderTone, 0.34),
+				"--dsw-alias-border-l4": veil(a.canvas, borderTone, 0.44),
+				"--dsw-alias-border-l2-darkmode-thin": veil(a.canvas, borderTone, 0.18),
+				"--dsw-alias-border-inverted": borderTone === a.canvas ? alphaOf(a.ink, 0.16) : alphaOf(a.canvas, 0.16),
+				"--dsw-alias-border-inverted2": alphaOf(a.ink, 0.16),
+
+				/* the text ladder */
 				[T.labelPrimary]: a.ink,
 				[T.labelSecondary]: a.muted,
 				[T.labelTertiary]: a.faint,
 				[T.labelInverted]: a.onBrand,
+				"--dsw-alias-label-caption": a.faint,
+				"--dsw-alias-label-dimmed": a.muted,
+				"--dsw-alias-label-error": a.danger,
+				"--dsw-alias-label-primary-bluish": a.ink,
+				"--dsw-alias-label-primary-dimmed": a.ink,
+				"--dsw-alias-label-primary-inverted": a.onBrand,
+				[T.labelDeepDiving]: a.brand,
+				[T.labelDeepDivingShimmer]: mix(a.brand, a.ink, 0.35),
+				[T.labelDocumentPreview]: a.ink,
+				[T.labelShimmer]: alphaOfInk(0.3),
+				[T.markdownPlaceholder]: placeholder,
+				[T.markdownCitation]: a.faint,
+				[T.markdownTag]: a.nested,
+				[T.markdownCodeSegmentUnselected]: a.nested,
+				[T.markdownCodeSegmentSelected]: mix(a.nested, a.brand, 0.22),
+
+				/* accent and actions */
 				[T.brand]: a.brand,
 				[T.brandInvert]: a.onBrand,
 				[T.brandAccent]: a.brand,
+				[T.brandText]: a.brand,
+				[T.link]: a.link,
 				[T.buttonPrimary]: a.button,
 				[T.buttonPrimaryHover]: mix(a.button, a.ink, 0.18),
-				[T.link]: a.link,
-				[T.stateBusiness]: a.brand,
-				[T.stateError]: a.danger,
-				[T.stateWarn]: a.warn,
-				[T.stateSuccess]: a.ok,
-				[T.stateIdle]: a.idle,
+				"--dsw-alias-button-primary-dimmed": mix(a.canvas, a.button, 0.6),
+				"--dsw-alias-button-elevated-fill": a.raised,
+				"--dsw-alias-button-floating-fill": a.nested,
+				"--dsw-alias-button-floating-hover": a.deep,
+				"--dsw-alias-button-contrast-fill": a.ink,
+				"--dsw-alias-button-tool-bar-fill": alphaOf(a.ink, 0.32),
+				"--dsw-alias-button-tool-bar-fill-invisible": alphaOf(a.ink, 0.24),
+				"--dsw-alias-button-tool-bar-hover": alphaOf(a.ink, 0.42),
+				"--dsw-alias-button-ghost-active-fill": alphaOfInk(0.12),
+				"--dsw-alias-button-ghost-active-border": veil(a.canvas, borderTone, 0.3),
+				"--dsw-alias-button-ghost-active-hover": alphaOfInk(0.18),
+				"--dsw-alias-button-info-fill": a.brand,
+				"--dsw-alias-button-info-hover": mix(a.brand, a.ink, 0.16),
+
+				/* interaction layers */
 				[T.interactiveHover]: veil(a.canvas, a.ink, 0.08),
 				[T.interactiveActive]: veil(a.canvas, a.ink, 0.16),
+				"--dsw-alias-interactive-bg-hover-accent": veil(a.canvas, a.brand, 0.14),
+				"--dsw-alias-interactive-bg-hover-danger": veil(a.canvas, a.danger, 0.12),
+				"--dsw-alias-interactive-bg-hover-solid": a.nested,
+				[T.turnTriggerBg]: a.nested,
+				[T.turnTriggerBgHover]: veil(a.canvas, a.ink, 0.12),
+
+				/* semantic states */
+				[T.stateBusiness]: a.brand,
+				"--dsw-alias-state-business-tertiary": mix(a.canvas, a.brand, 0.18),
+				[T.stateError]: a.danger,
+				"--dsw-alias-state-error-secondary": mix(a.danger, a.canvas, 0.45),
+				[T.stateWarn]: a.warn,
+				"--dsw-alias-state-warn-label": mix(a.warn, a.ink, 0.3),
+				"--dsw-alias-state-warn-secondary": mix(a.warn, a.canvas, 0.35),
+				"--dsw-alias-state-warn-tertiary": mix(a.canvas, a.warn, 0.16),
+				[T.stateSuccess]: a.ok,
+				"--dsw-alias-state-success-secondary": mix(a.ok, a.canvas, 0.35),
+				"--dsw-alias-state-success-tertiary": mix(a.canvas, a.ok, 0.16),
+				[T.stateIdle]: a.idle,
+
+				/* code and diffs */
 				[T.codeBlock]: a.sunken,
 				[T.codeBlockBanner]: mix(a.sunken, a.ink, 0.06),
 				[T.inlineCode]: mix(a.sunken, a.ink, 0.04),
+				[T.codeDiffAdded]: veil(a.canvas, a.ok, 0.16),
+				[T.codeDiffDeleted]: veil(a.canvas, a.danger, 0.16),
+				[T.diffAddedBg]: veil(a.canvas, a.ok, 0.14),
+				[T.diffAddedGutter]: veil(a.canvas, a.ok, 0.1),
+				[T.diffAddedMarker]: a.ok,
+				[T.diffDeletedBg]: veil(a.canvas, a.danger, 0.14),
+				[T.diffDeletedGutter]: veil(a.canvas, a.danger, 0.1),
+				[T.diffDeletedMarker]: a.danger,
+
+				/* chrome */
 				[T.scrollbar]: mix(a.canvas, a.ink, 0.18),
 				[T.scrollbarHover]: mix(a.canvas, a.ink, 0.32),
+				"--dsw-alias-scrollbar-bg-l2": mix(a.nested, a.ink, 0.2),
+				"--dsw-alias-scrollbar-hover-l2": mix(a.nested, a.ink, 0.34),
 				[T.toastBg]: a.deep,
-				[T.toastLabel]: a.ink
+				[T.toastLabel]: a.ink,
+				[T.tooltipBg]: a.deep,
+				[T.tooltipKeyBg]: mix(a.deep, a.ink, 0.22),
+				[T.menuIcon]: a.muted,
+				[T.menuGroupHeaderFill]: alphaOf(a.raised, 0.94),
+				"--dsw-alias-switch-thumb": a.onBrand
 			};
-			return derived;
 		}
 
 		/**

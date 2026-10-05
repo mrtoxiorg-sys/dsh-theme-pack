@@ -105,12 +105,22 @@ override layers** on top of the active palette with
 `ctx.theme.overrideTokens("@local/dsh-theme-pack", tokens)`.
 
 Each skin declares ~18 color *atoms* per scheme (canvas, surfaces, text ladder,
-brand, border, states…) and a small engine derives the 32 alias tokens from them:
+brand, border, states…) and a small engine derives **every alias token the shell
+consumes** from them — 104 of them today, not just the obvious two dozen:
+
+![Every shell colour a skin carries](token-coverage.png)
 
 * borders and interactive fills are composed over the canvas, so they stay flat
   colors that match any surface;
 * the text ladder and brand colors are taken as authored, so contrast is checked
   rather than approximated.
+
+Coverage is the whole point. The shipped shell declares over a hundred
+`--dsw-alias-*` names; a skin that overrides only the popular ones leaves the
+composer, a menu, the sidebar or a diff view in their stock colours, and the
+result is a half-repainted UI. Two of the names the shell reads
+(`--dsw-alias-bg-layer-4` for the composer and footer row, `--dsw-alias-label-error`)
+are not declared anywhere in the shipped stylesheets at all — the pack defines them.
 
 Every generated palette is measured against WCAG contrast floors by the checker —
 380 foreground/background pairs across the 18 skins. The current tightest pair has
@@ -129,9 +139,11 @@ harness and asserts that:
   **nothing** in the sidebar footer;
 * every skin stacks exactly one override layer, `Stock` stacks none, and picking
   `Stock` removes the layer;
-* all 32 overridden tokens exist in the shipped design system
-  ([`design-platform.css`](design-platform.css), copied from
-  `@deepseek-ai/dsh-client-ui-theme`);
+* all 104 overridden tokens exist in the shipped design system
+  ([`design-platform.css`](design-platform.css) and
+  [`docs/shell.css`](docs/shell.css), extracted from
+  `@deepseek-ai/dsh-client-ui-theme` and the web shell) — a stylsheet that grows a
+  token the pack misses fails the run;
 * every token maps to a distinct light and dark value, and no two skins render
   the same palette;
 * every pair that decides readability clears its contrast floor;
@@ -142,7 +154,14 @@ Useful when changing palettes:
 
 ```bash
 DSH_THEME_MIN_CONTRAST=4 node verify-theme-pack.mjs   # loosen the floor
+node report-token-coverage.mjs                        # what is still uncovered?
+node report-token-values.mjs                          # stock values of the gaps
+node export-theme-palettes.mjs > theme-pack-palettes.json
 ```
+
+`report-token-coverage.mjs` is the one to run after a DSH update: it prints every
+alias token the shipped stylesheets mention that the pack does not override. The
+target is an empty list.
 
 ## Add or change a theme
 
@@ -152,7 +171,8 @@ DSH_THEME_MIN_CONTRAST=4 node verify-theme-pack.mjs   # loosen the floor
 4. Run the checker — it catches unknown tokens, missing palettes, duplicated
    schemes and contrast regressions.
 
-`Stock` deliberately carries no atoms: its whole job is to remove the layer.
+`Stock` deliberately carries no atoms: its whole job is to remove the layer. A
+new atom usually means one new line in `palette()`, not a new token table.
 
 ## Files
 
@@ -162,8 +182,13 @@ DSH_THEME_MIN_CONTRAST=4 node verify-theme-pack.mjs   # loosen the floor
 | `index.js` | Host half: empty, the loader row only needs to exist |
 | `cordis.patch.yml` | The bundle patch that inserts the loader row |
 | `design-platform.css` | The shipped alias-token tables the checker validates against |
-| `REFERENCE.md` | Token map and integration gotchas |
+| `docs/shell.css` | The shipped shell bundle, for the shell-only token names |
 | `docs/preview.png` | Palette preview |
+| `token-coverage.png` | Which shell element each skin carries |
+| `verify-theme-pack.mjs` | The checker |
+| `report-token-coverage.mjs` | Prints alias tokens the pack does not override |
+| `export-theme-palettes.mjs` | Dumps every palette straight out of the engine |
+| `REFERENCE.md` | Token map and integration gotchas |
 
 ## License
 
@@ -182,5 +207,14 @@ MIT — see [LICENSE](LICENSE).
 подхватывает HMR клиентских плагинов.
 
 Проверка палитр: `node verify-theme-pack.mjs` — гоняет настоящий `client.js`
-в минимальном окружении и проверяет регистрацию, 32 токена против штатной
+в минимальном окружении и проверяет регистрацию, **104 токена** против штатной
 дизайн-системы, различимость схем и контраст по WCAG.
+
+Почему именно 104: оболочка DSH объявляет больше сотни alias-токенов, и если
+переопределить только «популярные», композер, меню или боковая панель останутся
+в штатных цветах — получится полуперекрашенный интерфейс. Два имени
+(`--dsw-alias-bg-layer-4` для композера и подвала, `--dsw-alias-label-error`)
+в штатных стилях вообще не объявлены — их задаёт пак.
+
+`node report-token-coverage.mjs` печатает, какие объявленные токены пак ещё не
+переопределяет. Пустой список — норма.
