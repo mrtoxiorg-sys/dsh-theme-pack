@@ -45,9 +45,18 @@
     "cordis.patch.yml",
     "README.md",
     "REFERENCE.md",
-    "design-platform.css",
+    "install-theme-pack.mjs",
     "verify-theme-pack.mjs",
+    "report-token-coverage.mjs",
+    "report-token-values.mjs",
+    "report-structure.mjs",
+    "report-switch.mjs",
     "export-theme-palettes.mjs",
-    "docs/preview.png"
+    "make-theme-preview.py",
+    "make-token-diagram.py",
+    "docs/design-platform.css",
+    "docs/shell.css",
+    "docs/preview.png",
+    "token-coverage.png"
   ]
 }

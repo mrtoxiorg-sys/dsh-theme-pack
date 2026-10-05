@@ -209,12 +209,15 @@ Useful when changing palettes:
 DSH_THEME_MIN_CONTRAST=4 node verify-theme-pack.mjs   # loosen the floor
 node report-token-coverage.mjs                        # what is still uncovered?
 node report-token-values.mjs                          # stock values of the gaps
+node report-structure.mjs                             # derived static/specific values
+node report-switch.mjs                                # switch contrast per skin
 node export-theme-palettes.mjs > theme-pack-palettes.json
+python make-theme-preview.py                          # rewrites docs/preview.png
 ```
 
 `report-token-coverage.mjs` is the one to run after a DSH update: it prints every
-alias token the shipped stylesheets mention that the pack does not override. The
-target is an empty list.
+colour token the shipped stylesheets mention that the pack does not override, and
+exits non-zero while any remain. The target is an empty list.
 
 ## Add or change a theme
 
@@ -236,11 +239,14 @@ new atom usually means one new line in `palette()`, not a new token table.
 | `cordis.patch.yml` | The bundle patch that inserts the loader row |
 | `design-platform.css` | The shipped alias-token tables the checker validates against |
 | `docs/shell.css` | The shipped shell bundle, for the shell-only token names |
-| `docs/preview.png` | Palette preview |
+| `docs/preview.png` | Palette preview (English names lead; Russian is the second line) |
 | `token-coverage.png` | Which shell element each skin carries |
 | `verify-theme-pack.mjs` | The checker |
-| `report-token-coverage.mjs` | Prints alias tokens the pack does not override |
+| `report-token-coverage.mjs` | Prints colour tokens the pack does not override, and fails while any remain |
+| `report-structure.mjs` | Prints the derived `--dsw-static-*` / `--dsw-specific-*` values |
+| `report-switch.mjs` | Prints the switch's contrast per theme and scheme |
 | `export-theme-palettes.mjs` | Dumps every palette straight out of the engine |
+| `make-theme-preview.py` | Renders `docs/preview.png` from that dump |
 | `REFERENCE.md` | Token map and integration gotchas |
 
 ## License
