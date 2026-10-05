@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-theme-pack",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Color theme pack for the DeepSeek Harness web GUI: 19 skins with light and dark palettes, picked from Settings",
   "keywords": [
     "dsh",

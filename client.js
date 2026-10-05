@@ -41,7 +41,7 @@ window.__ModuleLoader__.load({
 		const STYLE_ID = "dsh-theme-pack-style";
 		const LAYER_SOURCE = "@local/dsh-theme-pack";
 		/** Bumped on every published change; also lets the console prove which build ran. */
-		const VERSION = "1.2.3";
+		const VERSION = "1.2.4";
 
 		/**
 		 * Activation diagnostics, readable from the page console as
@@ -921,24 +921,49 @@ window.__ModuleLoader__.load({
 				subscribe: () => () => {}
 			};
 
-			const slots = resolve(ctx, "slots");
-			if (slots === undefined) {
-				report("no slots service; the picker is not mounted", undefined);
-				return;
-			}
-			guard("mount the Settings row", () =>
-				slots.inject("settings.general.item", () =>
-					slots.register(
-						{
-							name: "settings.general.item",
-							id: "theme-pack",
-							order: 13,
-							inject: () => ({ controller, t })
-						},
-						ThemeRow
+			/*
+			 * Mount the row. `inject` is empty, so cordis does not wait for any
+			 * service: if `slots` is not up yet we retry on the next theme/change
+			 * (a bounded number of times) instead of declaring nothing. Both faces
+			 * are covered — an early activation that finds the service, and a late
+			 * one that is nudged by the event.
+			 */
+			let mounted = false;
+			const mountRow = () => {
+				if (mounted) return;
+				const slots = resolve(ctx, "slots");
+				if (slots === undefined || typeof slots.inject !== "function") return;
+				guard("mount the Settings row", () =>
+					slots.inject("settings.general.item", () =>
+						slots.register(
+							{
+								name: "settings.general.item",
+								id: "theme-pack",
+								order: 13,
+								inject: () => ({ controller, t })
+							},
+							ThemeRow
+						)
 					)
-				)
-			);
+				);
+				mounted = true;
+			};
+
+			mountRow();
+			if (!mounted && typeof ctx.on === "function") {
+				let tries = 0;
+				guard("await the slots service", () =>
+					ctx.on("theme/change", () => {
+						if (mounted) return;
+						tries += 1;
+						if (tries > 20) return;
+						mountRow();
+						if (!mounted && tries === 20) {
+							report("the slots service never appeared; the picker is not mounted", undefined);
+						}
+					})
+				);
+			}
 		}
 	}
 });
