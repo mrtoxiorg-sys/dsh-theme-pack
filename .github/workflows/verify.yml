@@ -1,0 +1,25 @@
+# Runs the palette checker on every push and pull request.
+#
+# The checker has no dependencies: it evaluates the real client.js inside a small
+# module-loader / DOM / React harness and validates the palettes, so plain Node is
+# all the job needs.
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check every palette against the design system and WCAG floors
+        run: node verify-theme-pack.mjs
+      - name: Regenerate the palette dump
+        run: node export-theme-palettes.mjs > /tmp/palettes.json
