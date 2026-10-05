@@ -105,8 +105,8 @@ def main() -> None:
     draw.text((margin, margin), "Every shell colour a skin carries", fill=INK, font=font(19, bold=True))
     draw.text(
         (margin, margin + 26),
-        f"{token_count} alias tokens per skin (light + dark). Stock values are the shipped palette; "
-        f"each column is one skin's dark palette.",
+        f"{token_count} tokens per skin (light + dark): alias, static and specific families. "
+        f"Stock values are the shipped palette; each column is one skin's dark palette.",
         fill=MUTED,
         font=font(12),
     )
@@ -131,7 +131,8 @@ def main() -> None:
             else:
                 theme = by_id[id]
                 value = theme["all"]["dark"].get(token, "#ffffff")
-                caption = theme["label"]["ru"]
+                # English matches the column header above it (and the README).
+                caption = theme["label"]["en"]
             swatch(draw, value, x, y, cell_w, cell_h - 14, caption)
         y += cell_h + gap
 

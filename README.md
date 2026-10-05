@@ -1,10 +1,17 @@
 # DSH theme pack
 
 A color theme pack for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-web GUI: **18 skins**, each carrying a light *and* a dark palette, picked from
+web GUI: **19 skins**, each carrying a light *and* a dark palette, picked from
 **Settings → General → Theme**.
 
-![Palette preview](docs/preview.png)
+<!--
+The `v=` suffix is deliberate: GitHub serves README images through its `camo`
+proxy, which keeps a copy per URL, so a re-rendered figure at the same path can
+keep showing the previous version for a long time (a hard reload and a private
+window do not help — the stale copy is not in the reader's browser). Bump the
+value whenever make-theme-preview.py rewrites the figure.
+-->
+![Palette preview](docs/preview.png?v=2)
 
 ## Themes
 
@@ -158,31 +165,40 @@ override layers** on top of the active palette with
 `ctx.theme.overrideTokens("@local/dsh-theme-pack", tokens)`.
 
 Each skin declares ~18 color *atoms* per scheme (canvas, surfaces, text ladder,
-brand, border, states…) and a small engine derives **every alias token the shell
-consumes** from them — 104 of them today, not just the obvious two dozen:
+brand, border, states…) and a small engine derives **every colour token the shell
+consumes** from them — 153 of them today, across three token families, not just
+the obvious two dozen:
 
-![Every shell colour a skin carries](token-coverage.png)
+![Every shell colour a skin carries](token-coverage.png?v=2)
 
 * borders and interactive fills are composed over the canvas, so they stay flat
   colors that match any surface;
 * the text ladder and brand colors are taken as authored, so contrast is checked
-  rather than approximated.
+  rather than approximated;
+* the ramp the shell uses for structural neutrals (`--dsw-static-*`) and the
+  component overrides built on it (`--dsw-specific-*`) are derived from the same
+  atoms, so a skin has no stock grey left anywhere.
 
-Coverage is the whole point. The shipped shell declares over a hundred
-`--dsw-alias-*` names; a skin that overrides only the popular ones leaves the
-composer, a menu, the sidebar or a diff view in their stock colours, and the
-result is a half-repainted UI. Two of the names the shell reads
-(`--dsw-alias-bg-layer-4` for the composer and footer row, `--dsw-alias-label-error`)
-are not declared anywhere in the shipped stylesheets at all — the pack defines them.
+Coverage is the whole point, and it has to be measured across **all** the
+families. The shipped shell paints with `--dsw-alias-*` (the semantic ladder),
+`--dsw-static-*` (a fixed ramp) and `--dsw-specific-*` (component overrides
+pointing at that ramp); a skin that overrides only the popular alias names leaves
+the composer, a menu, the sidebar, a diff view — or the selected category in
+Settings — in their stock colours, and the result is a half-repainted UI. Three
+names the shell reads (`--dsw-alias-bg-layer-4` for the composer and footer row,
+`--dsw-alias-label-error`, and a scheme-less `--dsw-menu-surface-fill`) are not
+declared anywhere scheme-aware, so the pack defines them.
 
 Every generated palette is measured against WCAG contrast floors by the checker —
-380 foreground/background pairs across the 18 skins. The current tightest pair has
-a 4.03:1 ratio against a 4:1 requirement.
+380 foreground/background pairs across the 19 skins — plus a per-skin audit of the
+switch, whose knob has to read on both its off track and the brand fill. The
+current tightest pair has a 4.03:1 ratio against a 4:1 requirement.
 
 ## Verify
 
 ```bash
 node verify-theme-pack.mjs
+node report-token-coverage.mjs
 ```
 
 The checker runs the real `client.js` inside a minimal module-loader / DOM / React
@@ -192,7 +208,11 @@ harness and asserts that:
   **nothing** in the sidebar footer;
 * every skin stacks exactly one override layer, `Stock` stacks none, and picking
   `Stock` removes the layer;
-* all 104 overridden tokens exist in the shipped design system
+* a theme service that re-enters (`overrideTokens` publishes the very event the
+  pack listens to) neither overflows the stack nor re-stacks the layer;
+* `apply()` survives a restricted Client context, missing services and a missing
+  `React`, because a throw during activation fails the whole web boot;
+* all 153 overridden tokens exist in the shipped design system
   ([`design-platform.css`](design-platform.css) and
   [`docs/shell.css`](docs/shell.css), extracted from
   `@deepseek-ai/dsh-client-ui-theme` and the web shell) — a stylsheet that grows a
@@ -237,7 +257,7 @@ new atom usually means one new line in `palette()`, not a new token table.
 | `client.js` | Browser half: the palette engine, the theme catalogue, the picker row |
 | `index.js` | Host half: empty, the loader row only needs to exist |
 | `cordis.patch.yml` | The bundle patch that inserts the loader row |
-| `design-platform.css` | The shipped alias-token tables the checker validates against |
+| [`docs/design-platform.css`](docs/design-platform.css) | The shipped alias-token tables the checker validates against |
 | `docs/shell.css` | The shipped shell bundle, for the shell-only token names |
 | `docs/preview.png` | Palette preview (English names lead; Russian is the second line) |
 | `token-coverage.png` | Which shell element each skin carries |
@@ -247,6 +267,7 @@ new atom usually means one new line in `palette()`, not a new token table.
 | `report-switch.mjs` | Prints the switch's contrast per theme and scheme |
 | `export-theme-palettes.mjs` | Dumps every palette straight out of the engine |
 | `make-theme-preview.py` | Renders `docs/preview.png` from that dump |
+| `make-token-diagram.py` | Renders `token-coverage.png` from that dump |
 | `REFERENCE.md` | Token map and integration gotchas |
 
 ## License
@@ -257,7 +278,7 @@ MIT — see [LICENSE](LICENSE).
 
 # На русском
 
-**18 тем** для веб-интерфейса DeepSeek Harness, каждая с парой палитр
+**19 тем** для веб-интерфейса DeepSeek Harness, каждая с парой палитр
 (светлая и тёмная). Переключаются в **Настройки → Общие → «Темы»**; выбор
 запоминается в `localStorage`. «Сток» возвращает штатную палитру.
 
@@ -266,14 +287,18 @@ MIT — see [LICENSE](LICENSE).
 подхватывает HMR клиентских плагинов.
 
 Проверка палитр: `node verify-theme-pack.mjs` — гоняет настоящий `client.js`
-в минимальном окружении и проверяет регистрацию, **104 токена** против штатной
-дизайн-системы, различимость схем и контраст по WCAG.
+в минимальном окружении и проверяет регистрацию, **153 токена** против штатной
+дизайн-системы, различимость схем и контраст по WCAG, а также аудит тумблера
+(кружок должен читаться и на выключенной дорожке, и на фирменной заливке).
 
-Почему именно 104: оболочка DSH объявляет больше сотни alias-токенов, и если
-переопределить только «популярные», композер, меню или боковая панель останутся
-в штатных цветах — получится полуперекрашенный интерфейс. Два имени
-(`--dsw-alias-bg-layer-4` для композера и подвала, `--dsw-alias-label-error`)
-в штатных стилях вообще не объявлены — их задаёт пак.
+Почему именно 153: оболочка рисует не только `--dsw-alias-*`, но и
+`--dsw-static-*` (фиксированная шкала) с `--dsw-specific-*` (компонентные
+переопределения на её основе). Если переопределить только «популярные» alias-имена,
+композер, меню, боковая панель — или выбранная категория в настройках — останутся
+в штатных цветах: получится полуперекрашенный интерфейс. Три имени
+(`--dsw-alias-bg-layer-4` для композера и подвала, `--dsw-alias-label-error` и
+`--dsw-menu-surface-fill` без варианта для тёмной схемы) в штатных стилях
+объявлены неполно — их задаёт пак.
 
 `node report-token-coverage.mjs` печатает, какие объявленные токены пак ещё не
-переопределяет. Пустой список — норма.
+переопределяет, и падает, пока такие есть. Пустой список — норма.
