@@ -28,15 +28,20 @@ window.__ModuleLoader__.load({
 		const React =
 			(typeof require === "function" ? require("react") : undefined) ??
 			globalThis.React ??
-			window.React;
-		if (React === undefined) throw new Error("dsh-theme-pack: the React builtin is unavailable");
+			globalThis.window?.React;
+		/*
+		 * Deliberately NOT `throw`n when React is missing. A throw here happens
+		 * inside the factory, which is the one place no guard of ours can reach,
+		 * and it fails the whole web boot. React missing is reported and the
+		 * picker row simply declines to render.
+		 */
 
 		const NS = "theme-pack";
 		const STORAGE_KEY = "dsh-theme-pack:active";
 		const STYLE_ID = "dsh-theme-pack-style";
 		const LAYER_SOURCE = "@local/dsh-theme-pack";
 		/** Bumped on every published change; also lets the console prove which build ran. */
-		const VERSION = "1.2.1";
+		const VERSION = "1.2.3";
 
 		/**
 		 * Activation diagnostics, readable from the page console as
@@ -46,12 +51,28 @@ window.__ModuleLoader__.load({
 		 * activate.
 		 *
 		 * The object is reused across reloads (HMR re-evaluates this module), so a
-		 * reader that held a reference keeps seeing the current problems.
+		 * reader that held a reference keeps seeing the current problems. Every
+		 * write is guarded: a frozen or non-extensible global from an earlier
+		 * revision must not turn into a boot failure.
 		 */
-		const DIAGNOSTICS = (globalThis.__DSH_THEME_PACK__ ??= { problems: [] });
-		DIAGNOSTICS.version = VERSION;
-		DIAGNOSTICS.problems = [];
-		DIAGNOSTICS.themeIds = [];
+		const DIAGNOSTICS = (() => {
+			try {
+				const existing = globalThis.__DSH_THEME_PACK__;
+				if (existing !== null && typeof existing === "object") return existing;
+				const created = { problems: [] };
+				globalThis.__DSH_THEME_PACK__ = created;
+				return created;
+			} catch {
+				return { problems: [] };
+			}
+		})();
+		try {
+			DIAGNOSTICS.version = VERSION;
+			DIAGNOSTICS.problems = [];
+			DIAGNOSTICS.themeIds = [];
+		} catch {
+			/* A frozen diagnostics object is not worth failing an activation over. */
+		}
 
 		/** Record one recoverable problem without throwing. */
 		function report(step, error) {
@@ -72,6 +93,34 @@ window.__ModuleLoader__.load({
 				report(step, error);
 				return undefined;
 			}
+		}
+
+		/**
+		 * Resolve one Client service.
+		 *
+		 * A dynamic Client half does **not** receive the full cordis context: it
+		 * gets a restricted one whose documented surface is
+		 * `get / on / provide / effect`. Reading `ctx.slots` on that object throws
+		 * *before* the call inside is ever reached, and a throw during activation
+		 * fails the entire web boot ("N entries did not activate"). So every
+		 * service is reached through `ctx.get(name)` — with the property access
+		 * kept only as a fallback for hosts that expose the fuller face.
+		 */
+		function resolve(ctx, name) {
+			let service;
+			try {
+				service = typeof ctx?.get === "function" ? ctx.get(name) : undefined;
+			} catch {
+				service = undefined;
+			}
+			if (service === undefined) {
+				try {
+					service = ctx?.[name];
+				} catch {
+					service = undefined;
+				}
+			}
+			return service;
 		}
 
 		const DICTIONARIES = {
@@ -594,9 +643,18 @@ window.__ModuleLoader__.load({
 			return isDark ? definition.dark.brand : definition.light.brand;
 		}
 
+		/** The page's storage, wherever this realm happens to expose it. */
+		function storageOf() {
+			try {
+				return globalThis.localStorage ?? globalThis.window?.localStorage;
+			} catch {
+				return undefined;
+			}
+		}
+
 		function readStored() {
 			try {
-				const stored = window.localStorage.getItem(STORAGE_KEY);
+				const stored = storageOf()?.getItem(STORAGE_KEY);
 				return THEMES.some((theme) => theme.id === stored) ? stored : DEFAULT_ID;
 			} catch {
 				return DEFAULT_ID;
@@ -605,7 +663,7 @@ window.__ModuleLoader__.load({
 
 		function writeStored(id) {
 			try {
-				window.localStorage.setItem(STORAGE_KEY, id);
+				storageOf()?.setItem(STORAGE_KEY, id);
 			} catch {
 				/* a blocked storage must not break the picker */
 			}
@@ -651,12 +709,13 @@ window.__ModuleLoader__.load({
 					report(`theme "${definition.id}" has no atom tables`, undefined);
 					return;
 				}
-				if (typeof ctx.theme?.overrideTokens !== "function") {
+				const theme = resolve(ctx, "theme");
+				if (typeof theme?.overrideTokens !== "function") {
 					report("the theme service exposes no overrideTokens()", undefined);
 					return;
 				}
 				try {
-					disposeLayer = ctx.theme.overrideTokens(LAYER_SOURCE, tokens);
+					disposeLayer = theme.overrideTokens(LAYER_SOURCE, tokens);
 				} catch (error) {
 					report(`overrideTokens(${LAYER_SOURCE})`, error);
 					disposeLayer = () => {};
@@ -669,10 +728,12 @@ window.__ModuleLoader__.load({
 			guard("override layer", () => ctx.effect(() => () => disposeLayer(), "theme-pack: override layer"));
 			syncScheme();
 			if (typeof ctx.on === "function") {
-				ctx.on("theme/change", () => {
-					syncScheme();
-					apply();
-				});
+				guard("theme/change subscription", () =>
+					ctx.on("theme/change", () => {
+						syncScheme();
+						apply();
+					})
+				);
 			}
 			apply();
 
@@ -790,23 +851,55 @@ window.__ModuleLoader__.load({
 
 		return {
 			/**
-			 * `locale` is deliberately absent: the row carries its own two-language
-			 * dictionary and falls back to its own strings when no locale service is
-			 * reachable, which keeps a boot-critical dependency out of the graph.
+			 * Intentionally empty.
+			 *
+			 * `inject` is a *hard* dependency: cordis refuses to activate the entry
+			 * until every listed service exists, and the web boot fails the whole
+			 * application for an entry that never activates ("N entries did not
+			 * activate"). This pack must therefore not require anything at all —
+			 * every service is looked up defensively through resolve() instead, and
+			 * a missing one degrades the picker to a diagnostic.
 			 */
-			inject: ["theme", "slots"],
+			inject: [],
+			/**
+			 * Activate the pack. Wrapped three deep on purpose:
+			 *   1. `guard()` around every individual step names what degraded;
+			 *   2. the outer try/catch is the backstop for anything a step wraps
+			 *      internally (a callback cordis runs later, a service that throws
+			 *      while being inspected);
+			 *   3. and `activate()` has no `await` anywhere, so it cannot produce a
+			 *      late rejection that escapes the try/catch.
+			 */
 			apply(ctx) {
-				/* Every step below is guarded — see guard(). */
-				const dictionaries =
-					typeof ctx.locale?.register === "function"
-						? guard("register the dictionaries", () =>
-								ctx.effect(() => ctx.locale.register(NS, DICTIONARIES), "theme-pack: dictionaries")
-							)
-						: (report("no locale service; falling back to the built-in copy", undefined), undefined);
-				const t =
-					typeof ctx.locale?.bind === "function"
-						? ctx.locale.bind(NS)
-						: (key) => DICTIONARIES.en[key] ?? key;
+				try {
+					activate(ctx ?? {});
+				} catch (error) {
+					report("activate", error);
+				}
+			}
+		};
+
+		/**
+		 * The actual activation body. Every step is wrapped and every service is
+		 * reached through resolve(), which also keeps this working under the
+		 * restricted Client context (`get / on / provide / effect`) that some
+		 * hosts hand a dynamic half.
+		 */
+		function activate(ctx) {
+			if (React === undefined) {
+				report("the React builtin is unavailable; the picker cannot render", undefined);
+				return;
+			}
+			const locale = resolve(ctx, "locale");
+			if (typeof locale?.register === "function") {
+				guard("register the dictionaries", () =>
+					ctx.effect(() => locale.register(NS, DICTIONARIES), "theme-pack: dictionaries")
+				);
+			} else {
+				report("no locale service; falling back to the built-in copy", undefined);
+			}
+			const t = typeof locale?.bind === "function" ? locale.bind(NS) : (key) => DICTIONARIES.en[key] ?? key;
+			if (typeof ctx.effect === "function") {
 				guard("install the stylesheet", () =>
 					ctx.effect(() => {
 						if (typeof document === "undefined") return () => {};
@@ -817,28 +910,35 @@ window.__ModuleLoader__.load({
 						return () => node.remove();
 					}, "theme-pack: stylesheet")
 				);
-
-				const controller = createController(ctx);
-
-				if (typeof ctx.slots?.inject !== "function") {
-					report("the slots service exposes no inject(); the picker is not mounted", undefined);
-					return;
-				}
-				guard("mount the Settings row", () =>
-					ctx.slots.inject("settings.general.item", () =>
-						ctx.slots.register(
-							{
-								name: "settings.general.item",
-								id: "theme-pack",
-								order: 13,
-								inject: () => ({ controller, t })
-							},
-							ThemeRow
-						)
-					)
-				);
-				void dictionaries;
+			} else {
+				report("no ctx.effect(); the pack's stylesheet is not installed", undefined);
 			}
-		};
+
+			const controller = guard("build the controller", () => createController(ctx)) ?? {
+				get: () => DEFAULT_ID,
+				isDark: () => false,
+				set() {},
+				subscribe: () => () => {}
+			};
+
+			const slots = resolve(ctx, "slots");
+			if (slots === undefined) {
+				report("no slots service; the picker is not mounted", undefined);
+				return;
+			}
+			guard("mount the Settings row", () =>
+				slots.inject("settings.general.item", () =>
+					slots.register(
+						{
+							name: "settings.general.item",
+							id: "theme-pack",
+							order: 13,
+							inject: () => ({ controller, t })
+						},
+						ThemeRow
+					)
+				)
+			);
+		}
 	}
 });

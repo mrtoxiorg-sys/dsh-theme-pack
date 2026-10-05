@@ -172,7 +172,34 @@ const ctx = {
     const dispose = callback();
     return typeof dispose === 'function' ? dispose : () => {};
   },
+  get(name) {
+    return service[name];
+  },
   ...service
+};
+
+/**
+ * The *restricted* Client context a dynamic half actually receives: only
+ * `get / on / provide / effect`, with no service properties at all. Reading
+ * `ctx.slots` on that object throws, which is what took the whole web boot
+ * down — the plugin used to dereference services directly.
+ */
+const restrictedCtx = {
+  listeners: {},
+  on(name, listener) {
+    (restrictedCtx.listeners[name] ??= []).push(listener);
+    return () => {};
+  },
+  effect(callback) {
+    const dispose = callback();
+    return typeof dispose === 'function' ? dispose : () => {};
+  },
+  get(name) {
+    return service[name];
+  },
+  provide() {
+    return () => {};
+  }
 };
 
 /* --------------------------------------------------------------- React stub */
@@ -270,7 +297,7 @@ check(loaderPayload !== null, 'bundle did not call window.__ModuleLoader__.load'
 check(loaderPayload?.id === '@local/dsh-theme-pack', `unexpected package id: ${loaderPayload?.id}`);
 
 /** Every registration the plugin's apply() makes must land in the fake services. */
-function loadAndApply({ provideRequire }) {
+function loadAndApply({ provideRequire, context = ctx }) {
   for (const entry of service.slots.entries) entry.dispose?.();
   service.slots.entries.length = 0;
   overrides.clear();
@@ -279,16 +306,15 @@ function loadAndApply({ provideRequire }) {
   const payload = loadBundle({ provideRequire });
   const plugin = payload.factory(provideRequire ? (name) => globalThis.React : undefined);
   check(Array.isArray(plugin.inject), 'plugin must declare an inject list');
-  for (const name of ['theme', 'slots']) {
-    check(plugin.inject.includes(name), `plugin must inject "${name}"`);
-  }
   /**
-   * `locale` must NOT be a hard dependency: the row falls back to its own copy,
-   * and a hard inject is one more way for the whole web boot to fail on a
-   * service that is only a nicety.
+   * The inject list must be EMPTY. `inject` is a hard dependency: cordis will not
+   * activate the entry until every listed service exists, and the web boot fails
+   * the whole application for an entry that never activates. A theme pack that
+   * needs nothing can never sit in `pending`.
    */
-  check(!plugin.inject.includes('locale'), 'the locale service must stay optional');
-  plugin.apply(ctx);
+  check(plugin.inject.length === 0, `the inject list must stay empty, got: ${plugin.inject.join(', ')}`);
+  check(typeof plugin.apply === 'function', 'plugin must export apply()');
+  plugin.apply(context);
   return plugin;
 }
 
@@ -300,6 +326,44 @@ function rendersWithoutBareReact(label, component, injected) {
   } catch (error) {
     return `${label} crashed on render: ${error.message}`;
   }
+}
+
+/**
+ * The restricted-context pass: this is the bug that killed the boot twice.
+ *
+ * A dynamic Client half receives `get / on / provide / effect` and *nothing
+ * else*. `ctx.slots` and `ctx.locale` throw on that object, and a throw during
+ * activation fails the whole web boot. Activating through restrictedCtx proves
+ * the plugin reaches every service through `ctx.get(name)`.
+ */
+{
+  const payload = loadBundle({ provideRequire: true });
+  const restrictedPlugin = payload.factory((name) => globalThis.React);
+  let crashed = null;
+  try {
+    restrictedPlugin.apply(restrictedCtx);
+  } catch (error) {
+    crashed = error;
+  }
+  check(crashed === null, `apply() threw on the restricted Client context: ${crashed?.message}`);
+  check(overrides.size === 0, 'the restricted-context pass must not leave a layer behind (stock)');
+  storage.set('dsh-theme-pack:active', 'nord');
+  const payload2 = loadBundle({ provideRequire: true });
+  const restrictedPlugin2 = payload2.factory((name) => globalThis.React);
+  let crashed2 = null;
+  try {
+    restrictedPlugin2.apply(restrictedCtx);
+  } catch (error) {
+    crashed2 = error;
+  }
+  check(crashed2 === null, `apply() threw on the restricted context while stacking a skin: ${crashed2?.message}`);
+  check(overrides.size === 1, 'the restricted-context pass did not stack the skin');
+  check(
+    service.slots.entries.some((entry) => entry.options?.id === 'theme-pack'),
+    'the restricted-context pass did not register the Settings row'
+  );
+  storage.clear();
+  overrides.clear();
 }
 
 const plugin = loadAndApply({ provideRequire: true });
@@ -408,6 +472,27 @@ void plugin;
   );
   storage.clear();
 
+  /**
+   * The no-services pass: the worst realistic environment. No `slots`, no
+   * `theme`, no `locale`, no `ctx.get`, no `React` at all — apply() must still
+   * return normally, because a throw during activation fails the whole web boot.
+   */
+  {
+    const payload = loadBundle({ provideRequire: true });
+    const reactBackup = globalThis.React;
+    delete globalThis.React;
+    const bare = payload.factory((name) => name === 'react' && reactBackup !== undefined ? reactBackup : undefined);
+    const bareCtx = { on() {}, effect: (callback) => callback(), provide: () => () => {} };
+    let bareCrashed = null;
+    try {
+      bare.apply(bareCtx);
+    } catch (error) {
+      bareCrashed = error;
+    }
+    globalThis.React = reactBackup;
+    check(bareCrashed === null, `apply() threw with no services at all: ${bareCrashed?.message}`);
+  }
+
   check(
     typeof globalThis.__DSH_THEME_PACK__?.version === 'string',
     'the console must be able to read the running version'
@@ -431,19 +516,29 @@ check(
 const fallbackPlugin = loadAndApply({ provideRequire: false });
 check(typeof fallbackPlugin.apply === 'function', 'the global-React path did not load the plugin');
 
-/* With neither source available the failure must be explicit, not a bare ReferenceError. */
+/*
+ * With neither React source available the module must still *load* — a throw in
+ * the factory cannot be caught by any guard and fails the whole web boot — and
+ * the missing builtin must be reported instead.
+ */
 const stashedReact = globalThis.React;
 delete globalThis.React;
 let missingReactError;
+let missingReactPlugin;
 try {
-  loadAndApply({ provideRequire: false });
+  missingReactPlugin = loadAndApply({ provideRequire: false });
 } catch (error) {
   missingReactError = error;
 }
 globalThis.React = stashedReact;
 check(
-  missingReactError !== undefined && /React builtin is unavailable/.test(missingReactError.message),
-  `a missing React builtin must fail loudly, got: ${missingReactError?.message ?? 'no error'}`
+  missingReactError === undefined,
+  `a missing React builtin must not throw out of the factory, got: ${missingReactError?.message}`
+);
+check(typeof missingReactPlugin?.apply === 'function', 'the plugin must still export apply() without React');
+check(
+  (globalThis.__DSH_THEME_PACK__?.problems ?? []).some((problem) => problem.includes('React')),
+  `a missing React builtin must be reported in the diagnostics, saw: ${(globalThis.__DSH_THEME_PACK__?.problems ?? []).join(' | ') || '(none)'}`
 );
 
 /* The plugin must still be registered and usable after the failure above. */

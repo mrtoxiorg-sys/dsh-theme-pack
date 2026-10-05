@@ -136,10 +136,46 @@ diagnostics.
 
 Two consequences for the design:
 
-* **`locale` is optional.** A hard `inject: ["locale"]` is one more service that
-  can fail activation; the row carries its own English/Russian copy and only uses
-  the locale service when it is there. `inject` is `["theme", "slots"]`.
+* **`inject` is empty.** A hard `inject: ["theme", "slots"]` is a *waiting* state:
+  cordis does not activate the entry until every listed service exists, and the
+  boot asserts activation. A pack that needs nothing cannot hang in `pending`,
+  so every service is looked up through `resolve(ctx, name)` at the moment it is
+  used, and a missing one only degrades the picker. The locale service is soft
+  for the same reason — the row carries its own English/Russian copy.
 * **Diagnostics are readable from the console.** After a boot, run
   `window.__DSH_THEME_PACK__` — it reports `version`, `themeIds` and `problems`.
   An empty `problems` array plus a missing picker means the slot registration
   never happened, not that the plugin died.
+
+### The context a client half actually gets
+
+Not necessarily the full cordis context. The documented surface of the restricted
+one is
+
+```
+ctx.get(name): unknown | undefined
+ctx.on(name, listener): () => void
+ctx.provide(name, value): () => void
+ctx.effect(callback, label?): () => void
+```
+
+Reading `ctx.slots` on that object throws, and a throw during activation fails
+the whole web boot. `resolve(ctx, name)` therefore tries `ctx.get(name)` first
+and only then the property, which works under both faces:
+
+```js
+function resolve(ctx, name) {
+  let service;
+  try { service = typeof ctx?.get === "function" ? ctx.get(name) : undefined; } catch { service = undefined; }
+  if (service === undefined) { try { service = ctx?.[name]; } catch { service = undefined; } }
+  return service;
+}
+```
+
+Note that `dsh.client.inject` in `package.json` is a *different* thing: it names
+client modules that must arrive before this bundle in the boot graph. A name with
+no row in that graph is skipped rather than fatal, but a stale name is still a
+dependency on nothing — this package briefly listed
+`@deepseek-ai/dsh-client-ui-sidebar`, which this build does not ship (it ships
+`-sidebar-browser`). The pack imports no client module of its own, so it declares
+none.
