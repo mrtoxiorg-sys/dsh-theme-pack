@@ -636,6 +636,13 @@ const declared = new Set(
  * token key when the extracted stylesheets are not around. */
 for (const match of source.matchAll(/--dsw-[a-z0-9-]+/g)) declared.add(match[0]);
 
+/**
+ * The pack's own private variables are allowed: they are namespaced `--dsh-`
+ * precisely so they cannot be mistaken for part of the shell's `--dsw-` contract,
+ * and they exist because the switch has no track token of its own.
+ */
+const isOwnToken = (name) => name.startsWith('--dsh-theme-pack-');
+
 const t = service.locale.bind('theme-pack');
 const props = { ctx, t, wide: true };
 
@@ -653,6 +660,22 @@ const ratio = (a, b) => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 };
+
+/** Split `#rrggbb` into channels for compositing. */
+const parseHex = (text) => {
+  const hex = String(text).trim().replace('#', '');
+  const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+  return {
+    r: Number.parseInt(full.slice(0, 2), 16),
+    g: Number.parseInt(full.slice(2, 4), 16),
+    b: Number.parseInt(full.slice(4, 6), 16)
+  };
+};
+const toHex = ({ r, g, b }) =>
+  '#' +
+  [r, g, b]
+    .map((value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0'))
+    .join('');
 
 /* Self-test the yardstick before trusting it on 18 themes. */
 check(Math.abs(ratio('#ffffff', '#000000') - 21) < 0.01, 'the contrast yardstick is broken (white/black)');
@@ -720,7 +743,7 @@ for (let step = 0; step < 64; step += 1) {
   let identical = 0;
   const schemes = { light: {}, dark: {} };
   for (const [name, pair] of Object.entries(layer ?? {})) {
-    check(declared.has(name), `"${id}" overrides an undeclared token: ${name}`);
+    check(declared.has(name) || isOwnToken(name), `"${id}" overrides an undeclared token: ${name}`);
     check(
       pair !== null && typeof pair.light === 'string' && typeof pair.dark === 'string',
       `"${id}" token ${name} lacks a light/dark pair`
@@ -897,6 +920,73 @@ const tightest = [...worst].sort((a, b) => a.value - a.required - (b.value - b.r
       );
     }
   }
+}
+
+/* ------------------------------------------------------------- the switch */
+
+/**
+ * The switch is read by its colour alone, and both its parts come from tokens
+ * named after something else: the off track is `--dsw-alias-border-l2` (restyled
+ * in the pack's stylesheet) and the thumb is `--dsw-alias-switch-thumb`. A thumb
+ * that vanishes into the track is the bug the user reported as "the off switch
+ * blends into the background", so both floors are checked per theme and scheme:
+ *
+ *   track vs canvas  1.2:1  the control must be visible on its surface
+ *   thumb vs track   1.5:1  the knob must be visible on the track
+ */
+{
+  const switchSurfaces = [];
+
+  /** Resolve a packed value to a solid colour over `base` (translucent tokens are veils). */
+  const solidOver = (value, base) => {
+    if (value === undefined) return undefined;
+    if (value.startsWith('#')) return value;
+    const match = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(value);
+    if (match === null) return undefined;
+    const [r, g, b] = [Number(match[1]), Number(match[2]), Number(match[3])];
+    const alpha = Number(match[4]);
+    const under = parseHex(base);
+    return toHex({
+      r: r * alpha + under.r * (1 - alpha),
+      g: g * alpha + under.g * (1 - alpha),
+      b: b * alpha + under.b * (1 - alpha)
+    });
+  };
+
+  for (const { id } of catalogue) {
+    const atoms = globalThis.__DSH_THEME_PACK__.atoms(id);
+    /* The switch tokens are assembled by tokensOf: palette() plus structure(). */
+    const pairs = globalThis.__DSH_THEME_PACK__.tokensOf(atoms ?? {});
+    for (const scheme of ['light', 'dark']) {
+      const tokens = Object.fromEntries(
+        Object.entries(pairs).map(([name, pair]) => [name, pair[scheme]])
+      );
+      const canvas = tokens['--dsw-alias-bg-base'];
+      const thumb = tokens['--dsw-alias-switch-thumb'];
+      const trackRaw = tokens['--dsh-theme-pack-switch-off'];
+      check(canvas !== undefined, `"${id}".${scheme} has no canvas for the switch audit`);
+      check(thumb !== undefined, `"${id}".${scheme} has no switch thumb`);
+      check(trackRaw !== undefined, `"${id}".${scheme} derives no off-track colour for the switch`);
+      if (canvas === undefined || thumb === undefined || trackRaw === undefined) continue;
+      const track = solidOver(trackRaw, canvas);
+      /* The control has to be visible on its own surface… */
+      const trackOnCanvas = ratio(track, canvas);
+      switchSurfaces.push({ id, scheme, label: 'track on canvas', value: trackOnCanvas, floor: 1.2 });
+      check(
+        trackOnCanvas >= 1.2,
+        `"${id}".${scheme} switch track on the canvas is ${trackOnCanvas.toFixed(2)}:1, needs 1.2:1`
+      );
+      const knob = ratio(thumb, track);
+      switchSurfaces.push({ id, scheme, label: 'thumb on off track', value: knob, floor: 1.5 });
+      check(knob >= 1.5, `"${id}".${scheme} switch thumb on the off track is ${knob.toFixed(2)}:1, needs 1.5:1`);
+      /* The on state paints the track brand-primary, so the same thumb has to work there. */
+      const onKnob = ratio(thumb, tokens['--dsw-alias-brand-primary']);
+      switchSurfaces.push({ id, scheme, label: 'thumb on brand track', value: onKnob, floor: 1.5 });
+      check(onKnob >= 1.5, `"${id}".${scheme} switch thumb on the on track is ${onKnob.toFixed(2)}:1, needs 1.5:1`);
+    }
+  }
+  const tightestSwitch = [...switchSurfaces].sort((a, b) => a.value - a.floor - (b.value - b.floor)).slice(0, 4);
+  globalThis.__DSH_SWITCH_AUDIT__ = { count: switchSurfaces.length, tightest: tightestSwitch };
 }
 
 /* ------------------------------------------------------------- picker row */

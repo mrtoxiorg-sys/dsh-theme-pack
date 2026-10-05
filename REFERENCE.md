@@ -32,16 +32,42 @@ lesson: the first version of the report counted `--dsw-alias-*` only and printed
 
 ## Beyond the design system
 
-Two names the shell reads are declared nowhere scheme-aware, so a skin has to
+Three names the shell reads are declared nowhere scheme-aware, so a skin has to
 define them itself:
 
 | Token | Why |
 | --- | --- |
 | `--dsw-menu-surface-fill` | declared as `#f8f9fa94` — a light sheet with no dark variant |
 | `--dsw-hovercard-bg` | pinned to `#2C2C2E` *inside a shell rule*, so hover cards are dark under a light skin |
+| `--dsw-alias-bg-layer-4` | read but never declared: the composer and footer row |
+| `--dsw-alias-label-error` | read but never declared |
 
-`--dsw-alias-bg-layer-4` (the composer and footer row) and
-`--dsw-alias-label-error` are read but never declared at all.
+## Controls reuse tokens named after something else
+
+The switch is the clearest case, and it is worth reading before theming any other
+control:
+
+```css
+._switch { background: var(--dsw-alias-border-l3) }            /* off track  */
+._switch[aria-checked=true] { background: var(--dsw-alias-brand-primary) }
+._switch[aria-checked=false] ._thumb { background: var(--dsw-alias-switch-thumb) }
+```
+
+* the off track is a **border** token, shared with genuine hairlines — a track
+  cannot be given the weight it needs without drawing frames around everything;
+* there is exactly **one** `switch-thumb` token for both states, so the knob has
+  to stand off a mid-tone track *and* the brand fill;
+* `onBrand` is the only value that is defined as "reads on the brand", so the
+  track is derived dark enough that the same knob reads on it too (≥3:1 in every
+  skin), and the off state is styled from the pack's own stylesheet.
+
+That is why the pack carries two private variables, `--dsh-theme-pack-switch-off`
+and `-hover`. They are namespaced `--dsh-` rather than `--dsw-` on purpose: they
+are the pack's own, not part of the shell's token contract, and the verifier
+accepts them only under that prefix.
+
+The general lesson: before theming a control, read **which token it actually
+paints with**, rather than assuming the token's name describes the control.
 
 ## Where the palettes anchor
 

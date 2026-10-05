@@ -41,7 +41,7 @@ window.__ModuleLoader__.load({
 		const STYLE_ID = "dsh-theme-pack-style";
 		const LAYER_SOURCE = "@local/dsh-theme-pack";
 		/** Bumped on every published change; also lets the console prove which build ran. */
-		const VERSION = "1.2.5";
+		const VERSION = "1.2.6";
 
 		/**
 		 * Activation diagnostics, readable from the page console as
@@ -216,6 +216,7 @@ window.__ModuleLoader__.load({
 			tooltipKeyBg: "--dsw-alias-tooltip-key-bg",
 			menuIcon: "--dsw-alias-menu-icon",
 			menuGroupHeaderFill: "--dsw-alias-menu-group-header-fill",
+			switchThumb: "--dsw-alias-switch-thumb",
 			turnTriggerBg: "--dsw-alias-turn-trigger-bg",
 			turnTriggerBgHover: "--dsw-alias-turn-trigger-bg-hover",
 			bgDocumentPreview: "--dsw-alias-bg-document-preview",
@@ -361,7 +362,16 @@ window.__ModuleLoader__.load({
 		 * @returns {Record<string, string>} token name -> color.
 		 */
 		function palette(a) {
-			const borderTone = contrastRatio(a.canvas, a.border) > 1.6 ? a.canvas : a.ink;
+			/**
+			 * Which tone the border ladder is mixed from.
+			 *
+			 * `mix(canvas, canvas, x)` is the canvas, so getting this test backwards
+			 * makes every border invisible — which is exactly what happened: the
+			 * switch's off track uses a border token, and it disappeared into the
+			 * background. So: when the scheme's own `border` atom already stands off
+			 * its canvas, use it; otherwise pull the borders towards the text colour.
+			 */
+			const borderTone = contrastRatio(a.canvas, a.border) >= 1.4 ? a.border : mix(a.ink, a.border, 0.68);
 			const alphaOfInk = (ratio) => alphaOf(a.ink, ratio);
 			return {
 				/* canvas and the raised ladder */
@@ -383,14 +393,20 @@ window.__ModuleLoader__.load({
 				[T.bgDocumentPreview]: a.deep,
 				[T.bgDocumentSelection]: "rgba(59, 130, 246, 0.4)",
 
-				/* borders, thinner and lighter than the surface ladder */
-				[T.borderL1]: veil(a.canvas, borderTone, 0.14),
-				[T.borderL2]: veil(a.canvas, borderTone, 0.28),
-				"--dsw-alias-border-l3": veil(a.canvas, borderTone, 0.34),
-				"--dsw-alias-border-l4": veil(a.canvas, borderTone, 0.44),
-				"--dsw-alias-border-l2-darkmode-thin": veil(a.canvas, borderTone, 0.18),
-				"--dsw-alias-border-inverted": borderTone === a.canvas ? alphaOf(a.ink, 0.16) : alphaOf(a.canvas, 0.16),
-				"--dsw-alias-border-inverted2": alphaOf(a.ink, 0.16),
+				/*
+				 * Borders, thinner and lighter than the surface ladder. Kept gentle:
+				 * the switch's off track is *not* bent into this ladder any more, it
+				 * has its own value in the pack's stylesheet, because a track needs
+				 * far more weight than a hairline and sharing the token made every
+				 * card outline look like a frame.
+				 */
+				[T.borderL1]: veil(a.canvas, borderTone, 0.2),
+				[T.borderL2]: veil(a.canvas, borderTone, 0.36),
+				"--dsw-alias-border-l3": veil(a.canvas, borderTone, 0.44),
+				"--dsw-alias-border-l4": veil(a.canvas, borderTone, 0.56),
+				"--dsw-alias-border-l2-darkmode-thin": veil(a.canvas, borderTone, 0.24),
+				"--dsw-alias-border-inverted": borderTone === a.canvas ? alphaOf(a.ink, 0.2) : alphaOf(a.canvas, 0.2),
+				"--dsw-alias-border-inverted2": alphaOf(a.ink, 0.2),
 
 				/* the text ladder */
 				[T.labelPrimary]: a.ink,
@@ -489,8 +505,24 @@ window.__ModuleLoader__.load({
 				[T.tooltipKeyBg]: mix(a.deep, a.ink, 0.22),
 				[T.menuIcon]: a.muted,
 				[T.menuGroupHeaderFill]: alphaOf(a.raised, 0.94),
-				"--dsw-alias-switch-thumb": a.onBrand
+				/*
+				 * The switch thumb. One token paints both states:
+				 *
+				 *   off track: `--dsh-theme-pack-switch-track` (the pack derives it)
+				 *   on  track: `--dsw-alias-brand-primary`
+				 *
+				 * The knob therefore has to stand off a mid-tone track *and* the brand
+				 * fill. `onBrand` is by definition what reads on the brand, and the
+				 * track is derived dark enough that the same value reads on it too.
+				 */
+				[T.switchThumb]: a.onBrand
 			};
+		}
+
+		/** The off-state track colour for one scheme, derived from the same atoms. */
+		function switchTrack(a) {
+			const borderTone = contrastRatio(a.canvas, a.border) >= 1.4 ? a.border : mix(a.ink, a.border, 0.68);
+			return mix(veil(a.canvas, borderTone, 0.72), a.ink, 0.35);
 		}
 
 		/**
@@ -738,6 +770,15 @@ window.__ModuleLoader__.load({
 			/* Keep the stock alpha: the menu is a translucent sheet over the app. */
 			tokens["--dsw-specific-menu"] = alphaOf(a.raised, 0.94);
 			/*
+			 * The switch's off track. The shell has no track token — it paints the
+			 * switch with `--dsw-alias-border-l3`, shared with genuine hairlines — so
+			 * the off state is styled by the pack's own stylesheet from these two
+			 * private variables. They are namespaced `--dsh-` (not `--dsw-`) on
+			 * purpose: they are the pack's, not part of the shell's token contract.
+			 */
+			tokens["--dsh-theme-pack-switch-off"] = switchTrack(a);
+			tokens["--dsh-theme-pack-switch-off-hover"] = mix(switchTrack(a), a.brand, 0.16);
+			/*
 			 * Two names the shell reads that the design system either leaves
 			 * scheme-less (`#f8f9fa94`, i.e. always light) or pins inside a shell rule
 			 * (`--dsw-hovercard-bg: #2C2C2E`, always dark).
@@ -750,10 +791,26 @@ window.__ModuleLoader__.load({
 
 		const DEFAULT_ID = "stock";
 
-		/** The pack's own stylesheet: hover feedback for the picker chips. */
+		/**
+		 * The pack's own stylesheet.
+		 *
+		 * Two jobs here, and both are about tokens being *reused* by the shell for
+		 * something they were not named after:
+		 *
+		 * 1. hover feedback for the picker chips;
+		 * 2. the switch's off state. The shell paints that track with
+		 *    `--dsw-alias-border-l3` and the thumb with
+		 *    `--dsw-alias-switch-thumb`. `border-l3` is shared with genuine
+		 *    hairline borders, so it is restyled here, where the change is scoped to
+		 *    the control that needs it: the off track borrows the *deepest* border
+		 *    step, which the palette derives dark enough to hold a knob.
+		 */
 		const CSS = `
 [data-dsh-theme-pack-chip]{transition:border-color .12s ease,background-color .12s ease}
 [data-dsh-theme-pack-chip]:hover{border-color:var(--dsw-alias-brand-primary)!important}
+[role="switch"]{transition:background-color .12s ease}
+[role="switch"][aria-checked="false"]{background:var(--dsh-theme-pack-switch-off)}
+[role="switch"][aria-checked="false"]:hover{background:var(--dsh-theme-pack-switch-off-hover)}
 `;
 
 		function themeById(id) {
