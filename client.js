@@ -1,4 +1,4 @@
-// Four hand-tuned color themes for the DSH web GUI.
+// Color skins for the DSH web GUI.
 //
 // How the theming works: the built-in Appearance picker only knows
 // `light` / `dark` / `system`, and a third-party `ctx.theme.register()` id never
@@ -8,12 +8,14 @@
 // so a skin keeps working when the user flips light/dark — it is a layer over
 // the palette, not a replacement for it.
 //
-// Where the UI lives: the sidebar's foot area (and with it
-// `sidebar.footer.action`) is `display: none` while the sidebar is wide and only
-// appears in the 56px rail. So the primary picker is a row in
-// Settings -> General (`settings.general.item`), contributed through the same
-// contract the shipped Appearance/Language rows use; the rail cycler is kept as
-// a secondary entry point for the collapsed sidebar.
+// Where the UI lives: a row in Settings -> General (`settings.general.item`),
+// contributed through the same contract the shipped Appearance/Language rows use.
+// There is deliberately no sidebar button: the sidebar's foot area (and with it
+// `sidebar.footer.action`) is `display: none` while the sidebar is wide.
+//
+// This module is a guest in the application's boot sequence, so it must never
+// throw while activating: an entry that fails to activate fails the whole web
+// boot. Every step is guarded and reports into `globalThis.__DSH_THEME_PACK__`.
 window.__ModuleLoader__.load({
 	id: "@local/dsh-theme-pack",
 	factory(require) {
@@ -34,11 +36,43 @@ window.__ModuleLoader__.load({
 		const STYLE_ID = "dsh-theme-pack-style";
 		const LAYER_SOURCE = "@local/dsh-theme-pack";
 		/** Bumped on every published change; also lets the console prove which build ran. */
-		const VERSION = "1.2.0";
-		globalThis.__DSH_THEME_PACK__ = {
-			version: VERSION,
-			themeIds: () => THEMES.map((theme) => theme.id)
-		};
+		const VERSION = "1.2.1";
+
+		/**
+		 * Activation diagnostics, readable from the page console as
+		 * `window.__DSH_THEME_PACK__`. The pack is a guest in someone else's boot
+		 * sequence, so every failure has to be *reported* rather than *thrown*:
+		 * the web boot fails the whole application when a client entry does not
+		 * activate.
+		 *
+		 * The object is reused across reloads (HMR re-evaluates this module), so a
+		 * reader that held a reference keeps seeing the current problems.
+		 */
+		const DIAGNOSTICS = (globalThis.__DSH_THEME_PACK__ ??= { problems: [] });
+		DIAGNOSTICS.version = VERSION;
+		DIAGNOSTICS.problems = [];
+		DIAGNOSTICS.themeIds = [];
+
+		/** Record one recoverable problem without throwing. */
+		function report(step, error) {
+			const message = error === undefined ? step : `${step}: ${error?.message ?? String(error)}`;
+			DIAGNOSTICS.problems.push(message);
+			console.error(`dsh-theme-pack: ${message}`);
+		}
+
+		/**
+		 * Run one activation step, turning a throw into a diagnostic. A missing
+		 * slot, a foreign theme service or a duplicated locale namespace must
+		 * degrade the picker, not block the boot.
+		 */
+		function guard(step, run) {
+			try {
+				return run();
+			} catch (error) {
+				report(step, error);
+				return undefined;
+			}
+		}
 
 		const DICTIONARIES = {
 			en: {
@@ -526,6 +560,7 @@ window.__ModuleLoader__.load({
 			),
 		];
 		void ATOM_KEYS;
+		DIAGNOSTICS.themeIds = THEMES.map((theme) => theme.id);
 
 		const DEFAULT_ID = "stock";
 
@@ -589,32 +624,56 @@ window.__ModuleLoader__.load({
 			const listeners = new Set();
 
 			const syncScheme = () => {
-				isDark = document.body !== null && document.body.hasAttribute("data-ds-dark-theme");
+				isDark =
+					typeof document !== "undefined" &&
+					document.body !== null &&
+					document.body.hasAttribute("data-ds-dark-theme");
 			};
-			/** Stack the active skin over the current palette. */
+			/**
+			 * Stack the active skin over the current palette.
+			 *
+			 * Every step is guarded: a theme service that is missing, a layer the
+			 * service refuses, or a half-written atom table must leave the shell on
+			 * its stock palette and report the reason — never take the boot down.
+			 */
 			const apply = () => {
-				disposeLayer();
+				try {
+					disposeLayer();
+				} catch (error) {
+					report("dispose the previous layer", error);
+				}
 				disposeLayer = () => {};
 				const definition = themeById(active);
 				if (definition.id === DEFAULT_ID) return;
 				const tokens = tokensOf(definition);
 				if (Object.keys(tokens).length === 0) {
 					/* An incomplete atom table must not silently render the stock palette. */
-					console.error(`dsh-theme-pack: theme "${definition.id}" has no atom tables`);
+					report(`theme "${definition.id}" has no atom tables`, undefined);
 					return;
 				}
-				disposeLayer = ctx.theme.overrideTokens(LAYER_SOURCE, tokens);
+				if (typeof ctx.theme?.overrideTokens !== "function") {
+					report("the theme service exposes no overrideTokens()", undefined);
+					return;
+				}
+				try {
+					disposeLayer = ctx.theme.overrideTokens(LAYER_SOURCE, tokens);
+				} catch (error) {
+					report(`overrideTokens(${LAYER_SOURCE})`, error);
+					disposeLayer = () => {};
+				}
 			};
 			const notify = () => {
 				for (const listener of listeners) listener();
 			};
 
-			ctx.effect(() => () => disposeLayer(), "theme-pack: override layer");
+			guard("override layer", () => ctx.effect(() => () => disposeLayer(), "theme-pack: override layer"));
 			syncScheme();
-			ctx.on("theme/change", () => {
-				syncScheme();
-				apply();
-			});
+			if (typeof ctx.on === "function") {
+				ctx.on("theme/change", () => {
+					syncScheme();
+					apply();
+				});
+			}
 			apply();
 
 			return {
@@ -730,31 +789,55 @@ window.__ModuleLoader__.load({
 		}
 
 		return {
-			inject: ["theme", "slots", "locale"],
+			/**
+			 * `locale` is deliberately absent: the row carries its own two-language
+			 * dictionary and falls back to its own strings when no locale service is
+			 * reachable, which keeps a boot-critical dependency out of the graph.
+			 */
+			inject: ["theme", "slots"],
 			apply(ctx) {
-				ctx.effect(() => ctx.locale.register(NS, DICTIONARIES), "theme-pack: dictionaries");
-				const t = ctx.locale.bind(NS);
-				ctx.effect(() => {
-					const node = document.createElement("style");
-					node.id = STYLE_ID;
-					node.textContent = CSS;
-					document.head.append(node);
-					return () => node.remove();
-				}, "theme-pack: stylesheet");
+				/* Every step below is guarded — see guard(). */
+				const dictionaries =
+					typeof ctx.locale?.register === "function"
+						? guard("register the dictionaries", () =>
+								ctx.effect(() => ctx.locale.register(NS, DICTIONARIES), "theme-pack: dictionaries")
+							)
+						: (report("no locale service; falling back to the built-in copy", undefined), undefined);
+				const t =
+					typeof ctx.locale?.bind === "function"
+						? ctx.locale.bind(NS)
+						: (key) => DICTIONARIES.en[key] ?? key;
+				guard("install the stylesheet", () =>
+					ctx.effect(() => {
+						if (typeof document === "undefined") return () => {};
+						const node = document.createElement("style");
+						node.id = STYLE_ID;
+						node.textContent = CSS;
+						document.head.append(node);
+						return () => node.remove();
+					}, "theme-pack: stylesheet")
+				);
 
 				const controller = createController(ctx);
 
-				ctx.slots.inject("settings.general.item", () =>
-					ctx.slots.register(
-						{
-							name: "settings.general.item",
-							id: "theme-pack",
-							order: 13,
-							inject: () => ({ controller, t })
-						},
-						ThemeRow
+				if (typeof ctx.slots?.inject !== "function") {
+					report("the slots service exposes no inject(); the picker is not mounted", undefined);
+					return;
+				}
+				guard("mount the Settings row", () =>
+					ctx.slots.inject("settings.general.item", () =>
+						ctx.slots.register(
+							{
+								name: "settings.general.item",
+								id: "theme-pack",
+								order: 13,
+								inject: () => ({ controller, t })
+							},
+							ThemeRow
+						)
 					)
 				);
+				void dictionaries;
 			}
 		};
 	}

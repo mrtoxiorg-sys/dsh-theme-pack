@@ -279,9 +279,15 @@ function loadAndApply({ provideRequire }) {
   const payload = loadBundle({ provideRequire });
   const plugin = payload.factory(provideRequire ? (name) => globalThis.React : undefined);
   check(Array.isArray(plugin.inject), 'plugin must declare an inject list');
-  for (const name of ['theme', 'slots', 'locale']) {
+  for (const name of ['theme', 'slots']) {
     check(plugin.inject.includes(name), `plugin must inject "${name}"`);
   }
+  /**
+   * `locale` must NOT be a hard dependency: the row falls back to its own copy,
+   * and a hard inject is one more way for the whole web boot to fail on a
+   * service that is only a nicety.
+   */
+  check(!plugin.inject.includes('locale'), 'the locale service must stay optional');
   plugin.apply(ctx);
   return plugin;
 }
@@ -322,6 +328,95 @@ if (row?.component !== undefined) {
   if (rowError !== null) check(false, rowError);
 }
 void plugin;
+
+/**
+ * Boot safety: a client entry that throws during activation takes the whole web
+ * boot down with it ("N entries did not activate"), which is exactly how this
+ * pack once locked the user out of the application. Whatever the surrounding
+ * services do — refusing the layer, throwing on registration, or being absent —
+ * apply() must return normally and leave a diagnostic behind.
+ */
+{
+  /* A clean preference keeps this pass on the "stock" path, where no layer is
+   * installed: the point is the *services* misbehaving, not the skin. */
+  storage.clear();
+
+  const hostile = {
+    listeners: {},
+    on(name, listener) {
+      (hostile.listeners[name] ??= []).push(listener);
+    },
+    effect(callback) {
+      return callback();
+    },
+    theme: {
+      overrideTokens() {
+        throw new TypeError('theme override "--dsw-alias-bg-base" is not a pair of strings');
+      }
+    },
+    slots: {
+      inject() {
+        throw new Error('slot "settings.general.item" has no declaration');
+      },
+      register() {
+        throw new Error('unreachable');
+      }
+    },
+    locale: {
+      register() {
+        throw new Error('locale namespace "theme-pack" already has locale "en"');
+      },
+      bind() {
+        return (key) => key;
+      }
+    }
+  };
+
+  /**
+   * One hostile boot. The bundle re-evaluates `__DSH_THEME_PACK__` on every load,
+   * so the fresh object is re-read *after* loading and before applying.
+   */
+  const hostileBoot = (label) => {
+    const payload = loadBundle({ provideRequire: true });
+    const diagnostics = globalThis.__DSH_THEME_PACK__;
+    const hostilePlugin = payload.factory((name) => globalThis.React);
+    let crashed = null;
+    try {
+      hostilePlugin.apply(hostile);
+    } catch (error) {
+      crashed = error;
+    }
+    check(crashed === null, `${label}: apply() threw on hostile services: ${crashed?.message}`);
+    return diagnostics;
+  };
+
+  const stockDiagnostics = hostileBoot('stock');
+  for (const needle of ['dictionaries', 'Settings row']) {
+    check(
+      stockDiagnostics.problems.some((problem) => problem.includes(needle)),
+      `stock pass: the diagnostics must name the "${needle}" step, saw: ${stockDiagnostics.problems.join(' | ') || '(none)'}`
+    );
+  }
+
+  /* The theme service itself must be exercised too: pick a skin, then let the
+   * service refuse the layer. */
+  storage.set('dsh-theme-pack:active', 'nord');
+  const skinDiagnostics = hostileBoot('skinned');
+  check(
+    skinDiagnostics.problems.some((problem) => problem.includes('overrideTokens')),
+    `skinned pass: the diagnostics must name the overrideTokens step, saw: ${skinDiagnostics.problems.join(' | ') || '(none)'}`
+  );
+  storage.clear();
+
+  check(
+    typeof globalThis.__DSH_THEME_PACK__?.version === 'string',
+    'the console must be able to read the running version'
+  );
+  check(
+    Array.isArray(globalThis.__DSH_THEME_PACK__?.themeIds) && globalThis.__DSH_THEME_PACK__.themeIds.length > 1,
+    'the console must be able to read the theme ids'
+  );
+}
 
 /* A version marker makes a stale page obvious: `__DSH_THEME_PACK__.version`. */
 const packageVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
@@ -649,3 +744,6 @@ for (const entry of tightest) {
   );
 }
 console.log(`  declared:  ${declared.size} --dsw-* names in the base design system`);
+console.log('');
+console.log('the stderr block above is deliberate: it is the boot-safety pass driving the');
+console.log('plugin against services that throw, and the plugin reporting instead of dying.');

@@ -92,3 +92,54 @@ reports occupants with an `active` flag; `active: false` right after an HMR swap
 means the new revision registered but its fiber never came up, which in practice
 means the module threw during load or render. Read the browser console for
 `slot entry crashed in '<slot key>'` before trusting the tree.
+
+## A client plugin can take the whole boot down
+
+The web boot collects its client entries and then asserts that every one of them
+activated:
+
+```js
+if (o.length > 0) throw new Error(`web boot: ${o.length} entries did not activate\n${o.join("\n")}`);
+```
+
+An entry whose `apply()` throws ends up in fiber state `FAILED`, the assertion
+fires, and the desktop shell shows **"The application could not start or stopped
+unexpectedly"** with `@local/dsh-theme-pack: failed` in the body. The only way
+back in is *Disable third-party plugins, back up profile patch, and restart* —
+which renames `cordis.patch.yml` to `cordis.patch.yml.bak-<ms>` and rewrites the
+profile's `dsh.profile.bundles` to just the shipped bundles. After that recovery:
+
+* the package is still on disk in `node_modules/@local`, but it is no longer a
+  bundle, so nothing loads it;
+* any private configuration that lived in the patch file is gone (only the
+  backed-up copy has it);
+* a plain reinstall is required — `node install-theme-pack.mjs` puts the bundle
+  back into `dsh.profile.bundles`.
+
+Because a throw is fatal for the whole application, **a theme pack must never
+throw while activating**. Everything in `apply()` and in the controller is
+wrapped:
+
+```js
+function guard(step, run) {
+  try { return run(); } catch (error) { report(step, error); return undefined; }
+}
+```
+
+`report()` pushes onto `globalThis.__DSH_THEME_PACK__.problems` and logs
+`dsh-theme-pack: …` at error level. So the failure mode is a missing or degraded
+picker plus one console line, not a dead application. The verification script has
+a *hostile services* pass that drives the plugin with a `theme.overrideTokens`
+that throws, a `slots.inject` that throws and a `locale.register` that throws,
+and asserts that `apply()` returns normally and names each step in the
+diagnostics.
+
+Two consequences for the design:
+
+* **`locale` is optional.** A hard `inject: ["locale"]` is one more service that
+  can fail activation; the row carries its own English/Russian copy and only uses
+  the locale service when it is there. `inject` is `["theme", "slots"]`.
+* **Diagnostics are readable from the console.** After a boot, run
+  `window.__DSH_THEME_PACK__` — it reports `version`, `themeIds` and `problems`.
+  An empty `problems` array plus a missing picker means the slot registration
+  never happened, not that the plugin died.

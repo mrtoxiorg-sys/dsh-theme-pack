@@ -39,12 +39,36 @@ toasts. Each one is a **pair** of palettes, so switching
 
 Requires DeepSeek Harness Desktop (or `dsh web`) with a managed profile.
 
-### From GitHub
+### The short way
 
 ```bash
 git clone git@github.com:mrtoxiorg-sys/dsh-theme-pack.git
 cd dsh-theme-pack
-npm install --prefix "$DSH_PROFILE_DIR" file:"$PWD"
+DSH_PROFILE_DIR="$HOME/.dsh/profiles/desktop" \
+  node install-theme-pack.mjs
+```
+
+`install-theme-pack.mjs` verifies the bundle first, mirrors the package into
+`<profile>/node_modules/@local`, and registers it in the profile's
+`dsh.profile.bundles`. It is idempotent and takes `--uninstall` and `--check`:
+
+```
+$ node install-theme-pack.mjs --check
+profile        : /home/you/.dsh/profiles/desktop
+source version : 1.2.1
+installed      : 1.2.1
+registered     : yes
+up to date     : true
+```
+
+Restart DSH Desktop once so the new bundle is read. After that, edits to the
+package are picked up live by the client-plugin HMR channel — no restart.
+
+### By hand
+
+```bash
+git clone git@github.com:mrtoxiorg-sys/dsh-theme-pack.git
+npm install --prefix "$DSH_PROFILE_DIR" file:"$PWD/dsh-theme-pack"
 ```
 
 Then add the package to your profile's bundle list — in
@@ -81,8 +105,37 @@ package are picked up live by the client-plugin HMR channel — no restart.
 
 ### Uninstall
 
-Remove `@local/dsh-theme-pack` from `bundles` and from `dependencies`, then
-delete `node_modules/@local/dsh-theme-pack` in the profile.
+```bash
+DSH_PROFILE_DIR="$HOME/.dsh/profiles/desktop" \
+  node install-theme-pack.mjs --uninstall
+```
+
+Or by hand: remove `@local/dsh-theme-pack` from `bundles` and from
+`dependencies`, then delete `node_modules/@local/dsh-theme-pack` in the profile.
+
+### If the application refuses to start
+
+A client plugin that throws while activating fails the *whole* web boot, and the
+desktop shell offers **Disable third-party plugins, back up profile patch, and
+restart**. That recovery:
+
+1. renames your `cordis.patch.yml` to `cordis.patch.yml.bak-<ms>` (your settings
+   are in that backup, not in the live file);
+2. rewrites `dsh.profile.bundles` down to the shipped bundles — so this pack
+   stays installed on disk but stops being loaded, and no theme row appears.
+
+Re-run `node install-theme-pack.mjs` to put the bundle back, then restart. You do
+not need to reinstall anything by hand.
+
+Since 1.2.1 this pack cannot cause that: every activation step is guarded, and a
+failure lands in the console instead of the boot. Check what happened with:
+
+```js
+window.__DSH_THEME_PACK__   // { version, themeIds, problems: [] }
+```
+
+An empty `problems` means activation was clean. A non-empty one names the step
+that degraded — usually alongside `dsh-theme-pack: …` in the console.
 
 ## Use
 

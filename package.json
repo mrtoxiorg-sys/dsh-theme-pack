@@ -1,7 +1,7 @@
 {
   "name": "@local/dsh-theme-pack",
-  "version": "1.2.0",
-  "description": "Color theme pack for the DeepSeek Harness web GUI: 18 skins with light and dark palettes, picked from Settings",
+  "version": "1.2.1",
+  "description": "Color theme pack for the DeepSeek Harness web GUI: 19 skins with light and dark palettes, picked from Settings",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -35,7 +35,6 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-theme",
-        "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-locale"
       ]
     }
