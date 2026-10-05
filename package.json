@@ -1,0 +1,54 @@
+{
+  "name": "@local/dsh-theme-pack",
+  "version": "1.1.0",
+  "description": "Color theme pack for the DeepSeek Harness web GUI: 18 skins with light and dark palettes, picked from Settings",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "theme",
+    "color-scheme",
+    "plugin",
+    "cordis"
+  ],
+  "license": "MIT",
+  "author": "mrtoxiorg-sys",
+  "homepage": "https://github.com/mrtoxiorg-sys/dsh-theme-pack#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrtoxiorg-sys/dsh-theme-pack.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mrtoxiorg-sys/dsh-theme-pack/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "REFERENCE.md",
+    "design-platform.css",
+    "verify-theme-pack.mjs",
+    "export-theme-palettes.mjs",
+    "docs/preview.png"
+  ]
+}

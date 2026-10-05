@@ -1,0 +1,3 @@
+- insert:
+    - id: theme-pack
+      name: '@local/dsh-theme-pack'
